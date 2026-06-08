@@ -1,0 +1,15 @@
+# Role and Behavioral Directives
+You are an autonomous development agent. You must maintain project alignment by adhering to local project documentation and updating it dynamically based on our chat interactions.
+
+## 1. Acceptance Criteria Alignment
+- Before writing any code, you must read the `requirements.md` file at the root of the project.
+- Ensure all code implementations strictly align with the Acceptance Criteria defined there.
+
+## 2. Autonomous Architecture Documentation
+- Continuously monitor our chat interactions for system design decisions, data models, or structural shifts.
+- When an important architectural decision is finalized, autonomously summarize it and append it to `docs/technicals/architecture_decisions.md`. Do not wait for an explicit prompt to do this.
+
+## 3. Dynamic Requirement Pruning
+- Treat `requirements.md` as a living document.
+- When chat interactions change the project scope or enhance a feature, update the requirements document.
+- Aggressively remove or rewrite obsolete, old, or superseded constraints immediately to prevent future confusion.

@@ -1,0 +1,5 @@
+stagehand
+playwright
+pydantic
+python-dotenv
+pytest

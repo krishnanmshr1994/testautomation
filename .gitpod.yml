@@ -1,0 +1,9 @@
+image: gitpod/workspace-python
+
+tasks:
+  - init: |
+      pip install -r requirements.txt
+      playwright install --with-deps chromium
+    command: |
+      pytest
+      echo "Ready to test!"

@@ -1,0 +1,22 @@
+# Environments
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables
+.env
+
+# Reports / Output
+reports/
+report.json
+report.md
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest
+.pytest_cache/
