@@ -12,8 +12,10 @@ async def init_browser(url_or_html: str, is_html: bool = False):
     
     config = StagehandConfig(
         env=env_mode,
-        model_name="gpt-4o", # Defaults to OpenAI GPT-4o, can be overridden by env vars
-        model_api_key=os.getenv("OPENAI_API_KEY") 
+        model_name=os.getenv("MODEL_NAME", "google/gemini-2.0-flash"),
+        model_client_options={
+            "apiKey": os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        }
     )
     
     stagehand = Stagehand(config=config)
