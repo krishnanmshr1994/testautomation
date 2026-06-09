@@ -65,7 +65,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
-        default_model = "gemini-3.1-pro" if os.getenv("GEMINI_API_KEY") else "meta/llama-3.3-70b-instruct"
+        default_model = "gemini-1.5-pro" if os.getenv("GEMINI_API_KEY") else "meta/llama-3.3-70b-instruct"
         response = await client.chat.completions.create(
             model=os.getenv("MODEL_NAME", default_model),
             messages=[
