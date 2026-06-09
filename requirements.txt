@@ -1,4 +1,4 @@
-stagehand
+stagehand-py
 playwright
 pydantic
 python-dotenv
