@@ -133,8 +133,8 @@ async def run_automation(target: str,
     await discovery_page.context.close()
 
     # Parallel Execution Phase
-    # Gemini and GitHub Models handle massive load effortlessly. NVIDIA's free endpoint needs throttling.
-    max_concurrency = 10 if (os.getenv("GEMINI_API_KEY") or os.getenv("GITHUB_TOKEN") or os.getenv("HF_TOKEN") or os.getenv("GROQ_API_KEY")) else 2
+    # Free tier APIs (Gemini, NVIDIA, Groq) cannot handle 10 massive HTML payloads concurrently without throwing Rate Limits or Timeouts.
+    max_concurrency = 2
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     
