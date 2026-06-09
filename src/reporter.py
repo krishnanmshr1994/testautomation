@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 import re
 from src.planner import TestPlan
 from src.logger import stream_log
@@ -12,12 +13,13 @@ async def generate_report(target_url: str, results: list, audit_result, plan: Te
     2. report.json            - Full structured JSON output
     """
     # Create dynamic folder name: YYYYMMDD_HHMMSS_domain
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    nyc_tz = ZoneInfo("America/New_York")
+    timestamp = datetime.now(nyc_tz).strftime("%Y%m%d_%H%M%S")
     clean_domain = re.sub(r'[^a-zA-Z0-9]', '_', target_url.replace('https://', '').replace('http://', ''))[:30]
     output_dir = os.path.join(base_output_dir, f"{timestamp}_{clean_domain}")
     os.makedirs(output_dir, exist_ok=True)
     
-    display_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    display_timestamp = datetime.now(nyc_tz).strftime("%Y-%m-%d %H:%M:%S")
 
     # ─────────────────────────────────────────────────────────────
     # 1. TEST CASES REPORT (main deliverable the user asked for)

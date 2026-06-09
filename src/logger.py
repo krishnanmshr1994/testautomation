@@ -1,7 +1,7 @@
 import asyncio
-
 import os
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 class AsyncLogger:
     def __init__(self):
@@ -16,7 +16,8 @@ class AsyncLogger:
         if write_to_file:
             try:
                 with open(self.log_file, "a", encoding="utf-8") as f:
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    nyc_tz = ZoneInfo("America/New_York")
+                    timestamp = datetime.now(nyc_tz).strftime("%Y-%m-%d %H:%M:%S")
                     f.write(f"[{timestamp}] {message}\n")
             except Exception:
                 pass
