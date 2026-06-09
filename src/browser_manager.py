@@ -25,9 +25,10 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
                 {"role": "user", "content": prompt}
             ],
             temperature=0.3,
+            top_p=0.95,
             max_tokens=8192,
             extra_body={"chat_template_kwargs": {"thinking": False}},
-            timeout=30.0
+            timeout=120.0
         )
         return response.choices[0].message.content
     except Exception as e:
