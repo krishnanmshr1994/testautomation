@@ -1,46 +1,66 @@
 import os
 import asyncio
-from stagehand import Stagehand, StagehandConfig
+from playwright.async_api import async_playwright, Browser, Page, BrowserContext
+from openai import AsyncOpenAI
+
+# Global references
+_playwright = None
+_browser: Browser = None
+
+# Shared AI client using NVIDIA endpoint
+def get_ai_client() -> AsyncOpenAI:
+    return AsyncOpenAI(
+        base_url="https://integrate.api.nvidia.com/v1",
+        api_key=os.getenv("NVIDIA_API_KEY"),
+    )
+
+async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.") -> str:
+    """Helper to send a prompt to the LLM and get a text response."""
+    client = get_ai_client()
+    response = await client.chat.completions.create(
+        model=os.getenv("MODEL_NAME", "deepseek-ai/deepseek-v4-pro"),
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": prompt}
+        ],
+        temperature=0.3,
+        max_tokens=8192,
+    )
+    return response.choices[0].message.content
 
 async def init_browser(url_or_html: str, is_html: bool = False):
     """
-    Initializes the Stagehand client and navigates to the given URL or sets the HTML content.
-    Returns the stagehand instance and the page object.
+    Initializes a local Playwright browser (Chromium, headless).
+    Returns the browser, context, and page objects.
     """
-    # Assuming local execution or playwright backend based on environment
-    env_mode = os.getenv("STAGEHAND_ENV", "LOCAL")
-    
-    config = StagehandConfig(
-        env=env_mode,
-        model_name=os.getenv("MODEL_NAME", "deepseek-ai/deepseek-v4-pro"),
-        model_client_options={
-            "baseURL": "https://integrate.api.nvidia.com/v1",
-            "apiKey": os.getenv("NVIDIA_API_KEY")
-        }
-    )
-    
-    stagehand = Stagehand(config=config)
-    await stagehand.init()
-    
-    page = stagehand.page
-    
-    # Setup native Playwright event listeners for logging
-    page.on("console", lambda msg: print(f"Browser Console [{msg.type}]: {msg.text}"))
-    page.on("requestfailed", lambda req: print(f"Failed Request: {req.url} - {req.failure}"))
-    
-    # Auto-dismiss dialogs to prevent blocking execution during XSS testing
+    global _playwright, _browser
+
+    _playwright = await async_playwright().start()
+    _browser = await _playwright.chromium.launch(headless=True)
+    context: BrowserContext = await _browser.new_context()
+    page: Page = await context.new_page()
+
+    # Native Playwright event listeners for error/network capture
+    page.on("console", lambda msg: print(f"[Browser Console - {msg.type.upper()}] {msg.text}") if msg.type in ("error", "warning") else None)
+    page.on("requestfailed", lambda req: print(f"[Failed Request] {req.url} — {req.failure}"))
+
+    # Auto-dismiss dialogs to prevent XSS payloads from blocking execution
     async def handle_dialog(dialog):
-        print(f"CRITICAL: Unexpected Dialog caught (Type: {dialog.type}). Message: {dialog.message}")
+        print(f"[CRITICAL XSS] Unexpected dialog caught! Type: {dialog.type}, Message: {dialog.message}")
         await dialog.dismiss()
-        
+
     page.on("dialog", lambda dialog: asyncio.create_task(handle_dialog(dialog)))
-    
+
     if is_html:
-        await page.set_content(url_or_html)
+        await page.set_content(url_or_html, wait_until="domcontentloaded")
     else:
         await page.goto(url_or_html, wait_until="networkidle")
-        
-    return stagehand, page
 
-async def close_browser(stagehand: Stagehand):
-    await stagehand.close()
+    return page
+
+async def close_browser():
+    global _playwright, _browser
+    if _browser:
+        await _browser.close()
+    if _playwright:
+        await _playwright.stop()

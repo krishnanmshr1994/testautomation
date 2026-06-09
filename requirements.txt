@@ -1,4 +1,4 @@
-stagehand-py
+openai
 playwright
 pydantic
 python-dotenv

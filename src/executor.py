@@ -1,21 +1,18 @@
-from stagehand import Stagehand
+import json
+from playwright.async_api import Page
 from src.planner import TestPlan
-from pydantic import BaseModel
+from src.browser_manager import ask_llm
 
-class VerificationResult(BaseModel):
-    success: bool
-    details: str
-
-async def execute_plan(stagehand: Stagehand, plan: TestPlan) -> list:
+async def execute_plan(page: Page, plan: TestPlan) -> list:
     """
-    Iterates through the test plan, acting on the page and verifying outcomes.
+    Iterates through the test plan.
+    Uses LLM to identify selectors, then Playwright to execute actions.
     """
     results = []
-    
+
     for idx, intent in enumerate(plan.intents):
-        print(f"\n--- Executing Step {idx + 1}/{len(plan.intents)} ---")
-        print(f"Action: {intent.description}")
-        
+        print(f"\n--- Step {idx + 1}/{len(plan.intents)}: {intent.description} ---")
+
         step_result = {
             "intent": intent.model_dump(),
             "action_success": False,
@@ -23,33 +20,77 @@ async def execute_plan(stagehand: Stagehand, plan: TestPlan) -> list:
             "error": None,
             "details": ""
         }
-        
+
         try:
-            # 1. Perform the action
-            action_result = await stagehand.page.act({"action": intent.description})
-            step_result["action_success"] = action_result.success
-            
-            if not action_result.success:
-                print(f"Action failed: {action_result.message}")
-                step_result["error"] = action_result.message
+            # Ask LLM to identify the CSS selector for the intended action
+            dom_snapshot = await page.evaluate("() => document.body.innerHTML.substring(0, 3000)")
+            selector_prompt = f"""
+Given this page HTML snippet:
+{dom_snapshot}
+
+For the following action: "{intent.description}"
+
+Respond ONLY with a valid JSON object in this exact format (no explanation):
+{{"selector": "<css-selector>", "action": "click|fill|press", "value": "<optional value to type>"}}
+
+If you cannot identify the element, respond with: {{"selector": null, "action": null, "value": null}}
+"""
+            raw = await ask_llm(selector_prompt, system="You are a Playwright automation expert. Respond only with JSON.")
+            cleaned = raw.strip().strip("```json").strip("```").strip()
+            action_data = json.loads(cleaned)
+
+            if not action_data.get("selector"):
+                step_result["error"] = "LLM could not identify element selector."
+                step_result["details"] = "No matching selector found."
                 results.append(step_result)
                 continue
-                
-            # 2. Verify the state
-            print(f"Verifying: {intent.expected_outcome}")
-            verification = await stagehand.page.extract({
-                "instruction": f"Verify if the following outcome occurred: {intent.expected_outcome}",
-                "schema": VerificationResult
-            })
-            
-            step_result["verification_success"] = verification.success
-            step_result["details"] = verification.details
-            print(f"Verification {'Passed' if verification.success else 'Failed'}: {verification.details}")
-            
+
+            selector = action_data["selector"]
+            action = action_data.get("action", "click")
+            value = action_data.get("value", "")
+
+            # Execute the action with Playwright
+            element = await page.query_selector(selector)
+            if not element:
+                step_result["error"] = f"Selector '{selector}' not found on page."
+                results.append(step_result)
+                continue
+
+            if action == "fill" and value:
+                await element.fill(str(value))
+            elif action == "press":
+                await element.press(str(value) if value else "Enter")
+            else:
+                await element.click()
+
+            step_result["action_success"] = True
+
+            # Verify outcome: ask LLM to check if the expected outcome occurred
+            page_text = await page.evaluate("() => document.body.innerText.substring(0, 2000)")
+            verify_prompt = f"""
+After performing: "{intent.description}"
+
+The page now shows this text:
+{page_text}
+
+Expected outcome: "{intent.expected_outcome}"
+
+Did the expected outcome occur? Respond ONLY with JSON:
+{{"success": true/false, "details": "Brief explanation"}}
+"""
+            raw_verify = await ask_llm(verify_prompt, system="You are a QA verification expert. Respond only with JSON.")
+            cleaned_verify = raw_verify.strip().strip("```json").strip("```").strip()
+            verify_data = json.loads(cleaned_verify)
+            step_result["verification_success"] = verify_data.get("success", False)
+            step_result["details"] = verify_data.get("details", "")
+
+            status = "✅ Passed" if step_result["verification_success"] else "❌ Failed"
+            print(f"{status}: {step_result['details']}")
+
         except Exception as e:
-            print(f"Error during execution: {str(e)}")
+            print(f"Error: {str(e)}")
             step_result["error"] = str(e)
-            
+
         results.append(step_result)
-        
+
     return results

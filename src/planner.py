@@ -1,42 +1,79 @@
-import os
 import json
+from playwright.async_api import Page
 from pydantic import BaseModel, Field
-from typing import List, Optional
-from stagehand import Stagehand
+from typing import List
+from src.browser_manager import ask_llm
 
 class TestIntent(BaseModel):
-    description: str = Field(..., description="A natural language description of the action to perform (e.g., 'Click the login button')")
-    expected_outcome: str = Field(..., description="The expected outcome of the action to verify (e.g., 'A success message appears')")
-    is_security_probe: bool = Field(False, description="Whether this action is injecting a security payload like XSS or SQLi")
+    description: str = Field(..., description="Natural language action to perform")
+    expected_outcome: str = Field(..., description="Expected result after the action")
+    is_security_probe: bool = Field(False, description="True if this injects a security payload")
 
 class TestPlan(BaseModel):
     intents: List[TestIntent]
 
-async def generate_test_plan(stagehand: Stagehand) -> TestPlan:
+async def generate_test_plan(page: Page) -> TestPlan:
     """
-    Observes the current page to map elements and uses an LLM to generate a test plan.
+    Extracts the DOM elements from the page and asks the LLM to generate a test plan.
     """
-    print("Observing page elements...")
-    observations = await stagehand.page.observe({
-        "instruction": "Identify all interactive elements, forms, inputs, and buttons."
-    })
-    
-    # We will pass these observations to the LLM to generate a plan.
-    # For now, we simulate the LLM call using Stagehand's extract or standard OpenAI.
-    # We use stagehand.page.extract to force an LLM extraction of a test plan based on the DOM.
-    print("Generating test plan based on observations...")
-    
-    test_plan_prompt = (
-        "Based on the elements on this page, generate a QA and Security test plan. "
-        "Include happy paths, negative paths, and security probes (like XSS payload '<script>alert(1)</script>' "
-        "or SQLi '' OR 1=1')."
-    )
-    
-    # Using Stagehand's extract capability to directly extract structured data (TestPlan)
-    plan = await stagehand.page.extract({
-        "instruction": test_plan_prompt,
-        "schema": TestPlan
-    })
-    
+    print("\n--- Discovering Page Elements ---")
+
+    # Extract key DOM elements using Playwright
+    dom_summary = await page.evaluate("""() => {
+        const elements = [];
+        document.querySelectorAll('input, button, a, select, textarea, form').forEach(el => {
+            elements.push({
+                tag: el.tagName.toLowerCase(),
+                type: el.type || null,
+                name: el.name || null,
+                id: el.id || null,
+                placeholder: el.placeholder || null,
+                text: el.innerText?.trim().substring(0, 50) || null,
+                href: el.href || null
+            });
+        });
+        return elements;
+    }""")
+
+    print(f"Found {len(dom_summary)} interactive elements. Generating test plan...")
+
+    prompt = f"""
+You are a QA and Security testing expert. Based on the following page elements extracted from a website, generate a comprehensive test plan.
+
+Page Elements:
+{json.dumps(dom_summary, indent=2)}
+
+Generate a JSON test plan with a list of test intents. Each intent must have:
+- description: A specific natural language instruction of what to do (e.g. "Type 'admin' into the username field")
+- expected_outcome: What should happen after the action
+- is_security_probe: true if this is injecting XSS/SQLi payloads, false otherwise
+
+Include:
+1. Happy path tests (valid inputs)
+2. Negative tests (invalid/empty inputs)
+3. Security probes: inject <script>alert(1)</script> into text fields, and ' OR 1=1-- into form fields
+
+Respond ONLY with a JSON object in this exact format:
+{{
+  "intents": [
+    {{"description": "...", "expected_outcome": "...", "is_security_probe": false}},
+    ...
+  ]
+}}
+"""
+    response = await ask_llm(prompt)
+
+    # Parse the JSON from the LLM response
+    try:
+        # Strip markdown code fences if present
+        cleaned = response.strip().strip("```json").strip("```").strip()
+        data = json.loads(cleaned)
+        plan = TestPlan(**data)
+    except Exception as e:
+        print(f"Warning: Could not parse test plan JSON, using fallback. Error: {e}")
+        plan = TestPlan(intents=[
+            TestIntent(description="Observe the page", expected_outcome="Page loads successfully", is_security_probe=False)
+        ])
+
     print(f"Generated {len(plan.intents)} test intents.")
     return plan
