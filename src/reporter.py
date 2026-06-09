@@ -4,100 +4,110 @@ from datetime import datetime
 from src.planner import TestPlan
 
 
-def save_test_cases(plan: TestPlan, output_dir: str = "reports/test_cases"):
-    """
-    Saves the generated test cases from the plan to a human-readable text file.
-    """
-    os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = os.path.join(output_dir, f"test_cases_{timestamp}.txt")
-
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write("=" * 60 + "\n")
-        f.write("  GENERATED TEST CASES\n")
-        f.write(f"  Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        f.write("=" * 60 + "\n\n")
-
-        happy_paths = [i for i in plan.intents if not i.is_security_probe]
-        security_probes = [i for i in plan.intents if i.is_security_probe]
-
-        f.write(f"Total Test Cases: {len(plan.intents)}\n")
-        f.write(f"  - Functional Tests: {len(happy_paths)}\n")
-        f.write(f"  - Security Probes: {len(security_probes)}\n\n")
-
-        f.write("-" * 60 + "\n")
-        f.write("FUNCTIONAL TESTS\n")
-        f.write("-" * 60 + "\n")
-        for idx, intent in enumerate(happy_paths, 1):
-            f.write(f"\nTC-{idx:03d}: {intent.description}\n")
-            f.write(f"  Expected: {intent.expected_outcome}\n")
-
-        f.write("\n" + "-" * 60 + "\n")
-        f.write("SECURITY PROBE TESTS\n")
-        f.write("-" * 60 + "\n")
-        for idx, intent in enumerate(security_probes, 1):
-            f.write(f"\nSEC-{idx:03d}: {intent.description}\n")
-            f.write(f"  Expected: {intent.expected_outcome}\n")
-
-    print(f"Test cases saved to: {filepath}")
-    return filepath
-
-
 def generate_report(results: list, audit_result, plan: TestPlan = None, output_dir: str = "reports"):
     """
-    Generates structured JSON and Markdown reports, and saves test cases to a text file.
+    Generates:
+    1. test_cases_report.txt  - Each test case with its PASS/FAIL result
+    2. report.json            - Full structured JSON output
+    3. report.md              - Human-readable Markdown summary
     """
     os.makedirs(output_dir, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # Save test cases to text file if plan is provided
-    if plan:
-        save_test_cases(plan, output_dir=os.path.join(output_dir, "test_cases"))
+    # ─────────────────────────────────────────────────────────────
+    # 1. TEST CASES REPORT (main deliverable the user asked for)
+    # ─────────────────────────────────────────────────────────────
+    tc_path = os.path.join(output_dir, "test_cases_report.txt")
+    with open(tc_path, "w", encoding="utf-8") as f:
+        f.write("=" * 70 + "\n")
+        f.write("  QA & SECURITY TEST CASES REPORT\n")
+        f.write(f"  Generated: {timestamp}\n")
+        f.write("=" * 70 + "\n\n")
 
-    # 1. JSON Report
+        # --- SECTION 1: Static Security Audit ---
+        f.write("SECTION 1: STATIC SECURITY AUDIT\n")
+        f.write("  (LLM reads the raw HTML for obvious security flaws)\n")
+        f.write("-" * 70 + "\n")
+        if audit_result and audit_result.vulnerabilities:
+            for idx, v in enumerate(audit_result.vulnerabilities, 1):
+                f.write(f"  SA-{idx:03d} [{v.severity.upper()}] {v.title}\n")
+                f.write(f"         Description : {v.description}\n")
+                f.write(f"         Result      : VULNERABILITY FOUND\n\n")
+        else:
+            f.write("  No static vulnerabilities found.\n\n")
+
+        # --- SECTION 2: Functional & Security Test Cases with Results ---
+        if plan and results:
+            functional = [(plan.intents[i], results[i]) for i in range(min(len(plan.intents), len(results))) if not plan.intents[i].is_security_probe]
+            security = [(plan.intents[i], results[i]) for i in range(min(len(plan.intents), len(results))) if plan.intents[i].is_security_probe]
+
+            f.write("\nSECTION 2: FUNCTIONAL TEST CASES\n")
+            f.write("  (Happy path + negative/boundary tests)\n")
+            f.write("-" * 70 + "\n")
+            if functional:
+                for idx, (intent, result) in enumerate(functional, 1):
+                    status = "PASS" if result.get("verification_success") else ("FAIL" if result.get("action_success") else "ERROR")
+                    f.write(f"\n  TC-{idx:03d} [{status}]\n")
+                    f.write(f"         Test        : {intent.description}\n")
+                    f.write(f"         Expected    : {intent.expected_outcome}\n")
+                    if result.get("details"):
+                        f.write(f"         Actual      : {result['details']}\n")
+                    if result.get("error"):
+                        f.write(f"         Error       : {result['error']}\n")
+            else:
+                f.write("  No functional test cases were generated.\n")
+
+            f.write("\n\nSECTION 3: SECURITY PROBE TEST CASES\n")
+            f.write("  (XSS and SQLi payload injection)\n")
+            f.write("-" * 70 + "\n")
+            if security:
+                for idx, (intent, result) in enumerate(security, 1):
+                    # For security probes: PASS means the attack DID NOT succeed (no alert fired)
+                    status = "SAFE" if result.get("verification_success") else ("VULNERABLE" if result.get("action_success") else "ERROR")
+                    f.write(f"\n  SEC-{idx:03d} [{status}]\n")
+                    f.write(f"         Probe       : {intent.description}\n")
+                    f.write(f"         Expected    : {intent.expected_outcome}\n")
+                    if result.get("details"):
+                        f.write(f"         Actual      : {result['details']}\n")
+                    if result.get("error"):
+                        f.write(f"         Error       : {result['error']}\n")
+            else:
+                f.write("  No security probe tests were generated.\n")
+
+        # --- Summary ---
+        total = len(results)
+        passed = sum(1 for r in results if r.get("verification_success"))
+        failed = total - passed
+        vuln_count = len(audit_result.vulnerabilities) if audit_result else 0
+
+        f.write("\n\n" + "=" * 70 + "\n")
+        f.write("  SUMMARY\n")
+        f.write("=" * 70 + "\n")
+        f.write(f"  Total Test Cases   : {total}\n")
+        f.write(f"  Passed             : {passed}\n")
+        f.write(f"  Failed / Errors    : {failed}\n")
+        f.write(f"  Static Vulns Found : {vuln_count}\n")
+        f.write("=" * 70 + "\n")
+
+    print(f"\n[Report] Test Cases Report : {tc_path}")
+
+    # ─────────────────────────────────────────────────────────────
+    # 2. JSON Report (raw data for programmatic use)
+    # ─────────────────────────────────────────────────────────────
     report_data = {
+        "generated_at": timestamp,
         "static_audit": audit_result.model_dump() if audit_result else None,
         "execution_results": results,
         "summary": {
-            "total_actions": len(results),
-            "successful_actions": sum(1 for r in results if r.get("action_success")),
-            "failed_actions": sum(1 for r in results if not r.get("action_success")),
-            "vulnerabilities_found": len(audit_result.vulnerabilities) if audit_result else 0
+            "total_actions": total,
+            "successful_actions": passed,
+            "failed_actions": failed,
+            "vulnerabilities_found": vuln_count
         }
     }
-
     json_path = os.path.join(output_dir, "report.json")
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report_data, f, indent=4)
 
-    # 2. Markdown Report
-    md_path = os.path.join(output_dir, "report.md")
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write("# QA & Security Automation Report\n\n")
-        f.write(f"**Generated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-
-        f.write("## Summary\n")
-        f.write(f"- Total Actions Executed: {report_data['summary']['total_actions']}\n")
-        f.write(f"- Successful Actions: {report_data['summary']['successful_actions']}\n")
-        f.write(f"- Failed Actions: {report_data['summary']['failed_actions']}\n")
-        f.write(f"- Static Vulnerabilities: {report_data['summary']['vulnerabilities_found']}\n\n")
-
-        f.write("## Static Audit Findings\n")
-        if audit_result and audit_result.vulnerabilities:
-            for v in audit_result.vulnerabilities:
-                f.write(f"- **[{v.severity.upper()}]** {v.title}: {v.description}\n")
-        else:
-            f.write("No static vulnerabilities found.\n")
-
-        f.write("\n## Execution Details\n")
-        for idx, r in enumerate(results):
-            f.write(f"### Step {idx + 1}: {r['intent']['description']}\n")
-            f.write(f"- **Action Success**: {r['action_success']}\n")
-            if r.get("error"):
-                f.write(f"- **Error**: {r['error']}\n")
-            f.write(f"- **Verification Success**: {r['verification_success']}\n")
-            f.write(f"- **Details**: {r['details']}\n\n")
-
-    print(f"\nReports generated in: {output_dir}/")
-    print(f"  - {json_path}")
-    print(f"  - {md_path}")
+    print(f"[Report] Full JSON Report  : {json_path}")
     return report_data
