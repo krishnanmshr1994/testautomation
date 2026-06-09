@@ -60,20 +60,7 @@ async def run_single_page(url: str,
                 audit_result = None
 
             # ── 2b. Context Analysis ──────────────────────────────────────────────
-            if not extra_context:
-                context_info = await analyze_for_required_context(page)
-                if context_info and context_queue is not None:
-                    signal = f"{NEEDS_INPUT_PREFIX}{context_info['prompt_message']}|{context_info['field_label']}|{context_info['placeholder']}"
-                    await stream_log(signal)
-                    await stream_log(f"[{url}] Waiting for user input...")
-                    try:
-                        extra_context = await asyncio.wait_for(context_queue.get(), timeout=120)
-                    except asyncio.TimeoutError:
-                        await stream_log(f"[{url}] No context received. Using defaults.")
-                        extra_context = ""
-                elif context_info:
-                    await stream_log(f"[{url}] Context detected: {context_info['field_label']} — using defaults.")
-
+            # Context is resolved globally in the discovery phase.
             if extra_context:
                 await stream_log(f"[{url}] User Context Applied: {extra_context}")
 
@@ -108,10 +95,26 @@ async def run_automation(target: str,
                          context_queue: asyncio.Queue = None) -> dict:
     
     # Discovery Phase
+    await stream_log(f"\n--- Initializing Discovery for {target} ---")
     discovery_page = await init_browser(target, is_html)
     if not discovery_page:
         return {}
         
+    # ── Context Analysis (Global for the domain) ──────────────────────────────────
+    if not extra_context:
+        context_info = await analyze_for_required_context(discovery_page)
+        if context_info and context_queue is not None:
+            signal = f"{NEEDS_INPUT_PREFIX}{context_info['prompt_message']}|{context_info['field_label']}|{context_info['placeholder']}"
+            await stream_log(signal)
+            await stream_log(f"[Base] Waiting for user input for context...")
+            try:
+                extra_context = await asyncio.wait_for(context_queue.get(), timeout=120)
+            except asyncio.TimeoutError:
+                await stream_log(f"[Base] No context received. Using defaults.")
+                extra_context = ""
+        elif context_info:
+            await stream_log(f"[Base] Context detected: {context_info['field_label']} — using defaults.")
+
     urls_to_test = await crawl_internal_links(target, discovery_page, max_pages)
     await discovery_page.context.close()
 
