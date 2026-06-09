@@ -70,7 +70,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
             temperature=temperature,
             top_p=0.7,
             max_tokens=4096,
-            timeout=120.0
+            timeout=45.0
         )
         return response.choices[0].message.content
     except Exception as e:
