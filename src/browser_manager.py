@@ -8,6 +8,11 @@ _playwright = None
 _browser: Browser = None
 
 def get_ai_client() -> AsyncOpenAI:
+    if os.getenv("NVIDIA_API_KEY"):
+        return AsyncOpenAI(
+            base_url="https://integrate.api.nvidia.com/v1",
+            api_key=os.getenv("NVIDIA_API_KEY"),
+        )
     if os.getenv("GEMINI_API_KEY"):
         return AsyncOpenAI(
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -28,9 +33,10 @@ def get_ai_client() -> AsyncOpenAI:
             base_url="https://models.inference.ai.azure.com",
             api_key=os.getenv("GITHUB_TOKEN"),
         )
+    # Fallback
     return AsyncOpenAI(
-        base_url="https://integrate.api.nvidia.com/v1",
-        api_key=os.getenv("NVIDIA_API_KEY"),
+        base_url="https://api.openai.com/v1",
+        api_key="dummy_key",
     )
 
 async def distill_dom(page) -> str:
@@ -80,7 +86,9 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
-        if os.getenv("GEMINI_API_KEY"):
+        if os.getenv("NVIDIA_API_KEY"):
+            default_model = "meta/llama-3.3-70b-instruct"
+        elif os.getenv("GEMINI_API_KEY"):
             default_model = "gemini-2.5-flash"
         elif os.getenv("GROQ_API_KEY"):
             default_model = "llama-3.3-70b-versatile"
