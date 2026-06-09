@@ -158,6 +158,33 @@
             margin-top: 8px;
         }
 
+        /* Toggles */
+        .toggles {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 24px;
+            background: rgba(15,23,42,0.5);
+            padding: 15px 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+        }
+        .toggle-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            cursor: pointer;
+            margin: 0;
+            font-weight: 400;
+        }
+        .toggle-label input {
+            accent-color: var(--primary);
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
         /* Buttons */
         .btn {
             width: 100%;
@@ -304,6 +331,12 @@
     <label for="customTestsInput">Custom Test Cases (Optional)</label>
     <textarea id="customTestsInput" placeholder="Test: Search for 'shoes'&#10;Expected: Search results for shoes are displayed" rows="3"></textarea>
 
+    <div class="toggles">
+        <label class="toggle-label"><input type="checkbox" id="runAudit" checked> Static Security Audit</label>
+        <label class="toggle-label"><input type="checkbox" id="runFunc" checked> Functional Tests</label>
+        <label class="toggle-label"><input type="checkbox" id="runProbes" checked> Security Probes</label>
+    </div>
+
     <!-- Context prompt — injected by AI only when needed -->
     <div id="contextBox">
         <div class="context-header">
@@ -391,6 +424,9 @@ evtSource.onmessage = (e) => {
 async function handleStart() {
     const url = document.getElementById("urlInput").value.trim();
     const customTests = document.getElementById("customTestsInput").value.trim();
+    const runAudit = document.getElementById("runAudit").checked;
+    const runFunc = document.getElementById("runFunc").checked;
+    const runProbes = document.getElementById("runProbes").checked;
     if (!url) { alert("Please enter a URL"); return; }
 
     // If we are paused waiting for context, submit the context
@@ -417,7 +453,13 @@ async function handleStart() {
         await fetch("/api/start-test", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url: url, custom_tests: customTests })
+            body: JSON.stringify({ 
+                url: url, 
+                custom_tests: customTests,
+                run_audit: runAudit,
+                run_functional: runFunc,
+                run_probes: runProbes
+            })
         });
     } catch (err) {
         logLine(`[Error] Failed to start: ${err}`, "err");

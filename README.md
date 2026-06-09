@@ -34,32 +34,29 @@ User enters URL → clicks "Commence Automation"
 [Step 1] Browser opens (single session — no double open)
         │
         ▼
-[Step 2] Static Security Audit (auditor.py)
-         • distill_dom() minifies HTML
-         • LLM scans using full OWASP Top 10 (2021) checklist
-         • Returns vulnerabilities with: title, severity, owasp_category,
-           cwe_id, evidence, remediation
+[Step 2] Multi-Pass Security Audit (auditor.py)
+         • Reads `src/data/audit_rules.json` to perform thorough OWASP checks
+         • Splits audit into multiple passes (e.g. Injection vs. Misconfigurations)
+         • Can be skipped via UI toggle
         │
         ▼
 [Step 3] Context Analysis (planner.py)
          • LLM inspects form elements for required user input
-         • If login form / payment form / OTP detected →
-           emits NEEDS_INPUT: SSE signal to UI
-         • UI shows dynamic prompt (label + placeholder from LLM)
-         • User fills in or leaves blank → automation uses sensible defaults
-         • Continues in the SAME browser session (no re-open)
+         • UI asks user for missing context (OTP, complex login credentials)
         │
         ▼
 [Step 4] Test Plan Generation (planner.py)
-         • Parses any Custom Test Cases provided by user
-         • Extracts all input/button/link/form elements from DOM
-         • LLM generates TestIntent list: description + expected_outcome
-         • Includes: happy path, negative, security probes (XSS, SQLi)
-         • Combines Custom Tests + AI Tests
-         • test_cases_planned.txt written to disk IMMEDIATELY (before execution)
+         • Extracts DOM elements and combines with User Custom Tests
+         • Generates Happy Path / Negative Tests (if enabled in UI)
+         • Generates Security Probes by assigning `attack_type` (e.g. "XSS") (if enabled in UI)
+         • test_cases_planned.txt written to disk IMMEDIATELY
         │
         ▼
-[Step 5] Execution Loop (executor.py) — with live file writes
+[Step 5] Execution Loop & Fuzzing (executor.py) — live file writes
+         • Reads intents and interacts via Playwright
+         • If `attack_type` is present, loads `src/data/payloads.json` and fuzzes the field with multiple payloads (Deep Scan)
+         • Captures live success/fail verification via LLM
+         • Appends result to test_cases_report.txt as they happen
          For each intent:
            a. LLM identifies CSS selector from distilled DOM
            b. scroll_into_view → click/fill/press (5s timeout)

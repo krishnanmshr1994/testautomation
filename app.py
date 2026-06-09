@@ -27,13 +27,16 @@ async def start_test():
     data = await request.get_json()
     url              = data.get("url", "").strip()
     custom_tests_raw = data.get("custom_tests", "")
+    run_audit        = data.get("run_audit", True)
+    run_functional   = data.get("run_functional", True)
+    run_probes       = data.get("run_probes", True)
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
     q = asyncio.Queue()
     _context_queues[url] = q
 
-    asyncio.create_task(run_background_automation(url, q, custom_tests_raw))
+    asyncio.create_task(run_background_automation(url, q, custom_tests_raw, run_audit, run_functional, run_probes))
     return jsonify({"status": "started"})
 
 
@@ -56,10 +59,16 @@ async def submit_context():
 # Background runner — one browser session, analyze → (optional pause) → run
 # ─────────────────────────────────────────────────────────────────────────────
 async def run_background_automation(url: str, context_queue: asyncio.Queue,
-                                    custom_tests_raw: str = ""):
+                                    custom_tests_raw: str = "",
+                                    run_audit: bool = True,
+                                    run_functional: bool = True,
+                                    run_probes: bool = True):
     await stream_logger.log("--- INIT ---")
     report = await run_automation(url, is_html=False,
                                   custom_tests_raw=custom_tests_raw,
+                                  run_audit=run_audit,
+                                  run_functional=run_functional,
+                                  run_probes=run_probes,
                                   context_queue=context_queue)
     _context_queues.pop(url, None)
     if report:

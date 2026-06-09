@@ -18,6 +18,9 @@ async def run_automation(target: str,
                          is_html: bool = False,
                          extra_context: str = "",
                          custom_tests_raw: str = "",
+                         run_audit: bool = True,
+                         run_functional: bool = True,
+                         run_probes: bool = True,
                          context_queue: asyncio.Queue = None) -> dict:
     """
     Single browser session:
@@ -36,10 +39,14 @@ async def run_automation(target: str,
         return {}
 
     try:
-        # ── 1. Static Security Audit ───────────────────────────────────────────
-        audit_result = await perform_static_audit(page)
+        # ── 2. Static Audit ────────────────────────────────────────────────────
+        if run_audit:
+            audit_result = await perform_static_audit(page)
+        else:
+            await stream_log("\n--- Skipping Static Security Audit (Disabled by User) ---")
+            audit_result = None
 
-        # ── 2. Context Analysis (same browser session — no double open!) ───────
+        # ── 2b. Context Analysis (Wait for User if needed) ────────────────────────
         if not extra_context:
             context_info = await analyze_for_required_context(page)
             if context_info and context_queue is not None:
@@ -67,7 +74,7 @@ async def run_automation(target: str,
             await stream_log(f"[User Context Applied] {extra_context}")
 
         # ── 3. Generate Test Plan ──────────────────────────────────────────────
-        test_plan = await generate_test_plan(page, extra_context, custom_tests_raw)
+        test_plan = await generate_test_plan(page, extra_context, custom_tests_raw, run_functional, run_probes)
 
         # ── 4. Initialize Live Reporter (writes header + audit to disk NOW) ────
         live_reporter = LiveReporter(target)

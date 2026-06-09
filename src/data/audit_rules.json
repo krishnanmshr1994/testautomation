@@ -1,0 +1,48 @@
+{
+  "pass_1": {
+    "name": "Injection & Data Integrity",
+    "rules": [
+      {
+        "category": "A03:2021 – Injection",
+        "description": "Forms that accept raw user input without visible sanitization hints. Dynamic SQL hints in error messages or comments. Server-side template injection hints (e.g., {{7*7}} in field names)."
+      },
+      {
+        "category": "A03:2021 – Injection (DOM XSS)",
+        "description": "DOM-based XSS hints: Usage of document.write, innerHTML, or eval() in inline scripts without escaping."
+      },
+      {
+        "category": "A08:2021 – Software and Data Integrity Failures",
+        "description": "Script/link tags loading external resources from CDNs without integrity (SRI) attributes. External scripts loaded over HTTP instead of HTTPS."
+      },
+      {
+        "category": "A02:2021 – Cryptographic Failures",
+        "description": "HTTP links used instead of HTTPS for sensitive routes. Sensitive data or tokens present in URL parameters. Autocomplete not disabled on sensitive fields (password, credit card)."
+      }
+    ]
+  },
+  "pass_2": {
+    "name": "Access Control, Auth & Misconfigurations",
+    "rules": [
+      {
+        "category": "A01:2021 – Broken Access Control",
+        "description": "Admin or debug routes exposed in source (e.g., /admin, /debug). Hidden form fields that control access (role=admin, isAdmin=true). Directory listing hints."
+      },
+      {
+        "category": "A05:2021 – Security Misconfiguration",
+        "description": "Missing Content-Security-Policy (CSP) meta tag. X-Frame-Options missing (clickjacking risk). Verbose error messages in comments or HTML. Framework/version disclosure in meta generators or comments."
+      },
+      {
+        "category": "A07:2021 – Identification and Authentication Failures",
+        "description": "Login forms missing rate-limiting hints (no CAPTCHA). Password fields that are not type=\"password\". Session tokens visible in local storage access scripts."
+      },
+      {
+        "category": "A10:2021 – Server-Side Request Forgery (SSRF)",
+        "description": "URL input fields that accept full external URLs (e.g., image URL, webhook URL) without validation hints."
+      },
+      {
+        "category": "Extended – Secrets Exposure",
+        "description": "API keys, AWS tokens, JWTs, or other secrets hardcoded in JavaScript or meta tags. PII exposure (email addresses, SSNs in plain HTML)."
+      }
+    ]
+  }
+}

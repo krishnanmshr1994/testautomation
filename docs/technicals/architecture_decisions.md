@@ -102,4 +102,14 @@ Interactive HTML report viewer in the dashboard supports filter pills (All/Pass/
 
 ## 16. Custom Test Cases Support
 **Decision:** Allow users to write and inject their own custom test cases via the web UI before automation starts.
-**Rationale:** AI-generated test cases cover 80% of standard flows (happy paths, boundary, security). Allowing human testers to define complex, domain-specific edge cases (in simple natural language) and injecting them into the test queue ensures 100% coverage. Custom tests are parsed and executed first, followed by AI-generated tests.
+---
+
+## 17. Multi-Pass Security Audits
+**Decision:** Split the static security audit into multiple targeted passes defined in a JSON file (`src/data/audit_rules.json`) instead of one giant hardcoded OWASP string.
+**Rationale:** Sending 50+ rules to an LLM at once causes attention loss (hallucinations/skipped checks). Chunking them by category ensures deep focus.
+
+---
+
+## 18. Payload Dictionary (Deep Scan Fuzzing)
+**Decision:** Store fuzzing payloads in `src/data/payloads.json` instead of letting the LLM invent payloads.
+**Rationale:** The LLM is good at identifying attack vectors (e.g., "This search box is vulnerable to XSS") but slow/inconsistent at generating optimal payloads. By pairing the LLM's logic with a hardcoded dictionary (SecLists style), we can loop through 5-10 proven payloads for a specific vulnerability class efficiently.

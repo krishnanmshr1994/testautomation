@@ -116,10 +116,13 @@ def parse_custom_tests(raw: str) -> list[TestIntent]:
 
 async def generate_test_plan(page: Page,
                              extra_context: str = "",
-                             custom_tests_raw: str = "") -> TestPlan:
+                             custom_tests_raw: str = "",
+                             run_functional: bool = True,
+                             run_probes: bool = True) -> TestPlan:
     """
     Extracts the DOM elements from the page and asks the LLM to generate a test plan.
     If custom_tests_raw is provided, those intents are prepended to the AI-generated ones.
+    Respects run_functional and run_probes flags.
     """
     await stream_log("\n--- Discovering Page Elements ---")
 
@@ -128,6 +131,10 @@ async def generate_test_plan(page: Page,
     if custom_tests_raw and custom_tests_raw.strip():
         custom_intents = parse_custom_tests(custom_tests_raw)
         await stream_log(f"[Custom Tests] {len(custom_intents)} user-defined test case(s) added.")
+
+    if not run_functional and not run_probes:
+        await stream_log("--- Skipping AI Test Generation (Disabled by User) ---")
+        return TestPlan(intents=custom_intents)
 
     # Extract key DOM elements using Playwright
     dom_summary = await page.evaluate("""() => {
@@ -157,14 +164,15 @@ Page Elements:
 Generate a JSON test plan with a list of test intents. Each intent must have:
 - description: A specific natural language instruction of what to do (e.g. "Type 'admin' into the username field")
 - expected_outcome: What should happen after the action
-- is_security_probe: true if this is injecting XSS/SQLi payloads, false otherwise
+- is_security_probe: true if this is a security injection test, false otherwise
+- attack_type: If it IS a security probe, specify the attack class (e.g., "XSS", "SQLi", "SSRF", "SSTI", "LFI", "CommandInjection"). Otherwise, leave null.
 
-Include:
-1. Happy path tests (valid inputs)
-2. Negative tests (invalid/empty inputs)
-3. Security probes: inject <script>alert(1)</script> into text fields, and ' OR 1=1-- into form fields
-
+Include the following types of tests based on the user's request:
 """
+    if run_functional:
+        prompt += "1. Happy path tests (valid inputs)\n2. Negative tests (invalid/empty inputs)\n"
+    if run_probes:
+        prompt += "3. Security probes: Map vulnerable-looking fields to an appropriate `attack_type`. DO NOT generate the specific payload string (e.g. don't write '<script>'). The executor will dynamically fetch payloads from a deep-scan dataset based on the `attack_type` you assign.\n"
 
     if extra_context:
         prompt += f"""
@@ -172,7 +180,7 @@ IMPORTANT — The user has provided the following context/credentials to use in 
 {extra_context}
 Use this information for the happy-path tests.
 """
-    else:
+    elif run_functional:
         prompt += """
 IMPORTANT — No credentials or context were provided by the user.
 You MUST still generate realistic, concrete test cases using sensible default values appropriate to the detected form type. Examples:
@@ -181,7 +189,6 @@ You MUST still generate realistic, concrete test cases using sensible default va
 - Credit card fields: use card "4111111111111111", CVV "123", Expiry "12/28"
 - Email fields: use "tester@example.com"
 - Address fields: use "123 Test Street, New York, NY 10001"
-- Phone fields: use "+1-555-000-1234"
 Choose defaults that make sense for the detected context.
 """
 
@@ -189,8 +196,8 @@ Choose defaults that make sense for the detected context.
 Respond ONLY with a JSON object in this exact format:
 {
   "intents": [
-    {"description": "...", "expected_outcome": "...", "is_security_probe": false},
-    ...
+    {"description": "...", "expected_outcome": "...", "is_security_probe": false, "attack_type": null},
+    {"description": "Inject XSS into search field", "expected_outcome": "Application blocks or sanitizes the payload", "is_security_probe": true, "attack_type": "XSS"}
   ]
 }
 """
@@ -203,10 +210,8 @@ Respond ONLY with a JSON object in this exact format:
         data = json.loads(cleaned)
         ai_plan = TestPlan(**data)
     except Exception as e:
-        await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}\nRaw Response:\n{response}")
-        ai_plan = TestPlan(intents=[
-            TestIntent(description="Observe the page", expected_outcome="Page loads successfully", is_security_probe=False)
-        ])
+        await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}")
+        ai_plan = TestPlan(intents=[])
 
     # Merge: user-defined tests FIRST, then AI-generated
     merged_intents = custom_intents + ai_plan.intents
