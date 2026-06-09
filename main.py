@@ -35,11 +35,13 @@ async def run_automation(target: str, is_html: bool = False):
         await close_browser(stagehand)
 
 if __name__ == "__main__":
-    # Example Usage
-    # You can swap this with raw HTML testing: 
-    # test_target = "<html>...</html>"
-    # asyncio.run(run_automation(test_target, is_html=True))
+    # Prompt the user for the URL to test
+    print("Welcome to Stagehand QA Automation")
+    test_target = input("Please enter the website URL to test (e.g., https://example.com): ").strip()
     
-    test_target = "https://example.com"
+    if not test_target:
+        test_target = "https://example.com"
+        print(f"No URL provided, defaulting to {test_target}")
+        
     print(f"Testing {test_target}...")
     asyncio.run(run_automation(test_target, is_html=False))
