@@ -69,6 +69,7 @@ IMPORTANT ENFORCEMENT RULES:
 1. Think like an attacker. Do not skip anything. Be thorough and specific.
 2. If multiple elements share the SAME vulnerability (e.g., 3 different 'http://' links instead of 'https://'), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object and list ALL instances in the `evidence` field.
 3. Focus ONLY on the categories provided for this pass.
+4. ABSOLUTELY NO THEORETICAL RISKS: You MUST have concrete, visible evidence in the HTML snippet to report a vulnerability. If you cannot point to an exact line or attribute in the HTML, DO NOT report it. Do not say "potential for X exists" or "no explicit evidence found".
 
 Respond ONLY with valid JSON in this exact format:
 {{
