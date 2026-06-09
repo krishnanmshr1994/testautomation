@@ -8,6 +8,11 @@ _playwright = None
 _browser: Browser = None
 
 def get_ai_client() -> AsyncOpenAI:
+    if os.getenv("GITHUB_TOKEN"):
+        return AsyncOpenAI(
+            base_url="https://models.inference.ai.azure.com",
+            api_key=os.getenv("GITHUB_TOKEN"),
+        )
     if os.getenv("GEMINI_API_KEY"):
         return AsyncOpenAI(
             base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
@@ -65,7 +70,13 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
-        default_model = "gemini-2.5-flash" if os.getenv("GEMINI_API_KEY") else "meta/llama-3.3-70b-instruct"
+        if os.getenv("GITHUB_TOKEN"):
+            default_model = "gpt-4o-mini"
+        elif os.getenv("GEMINI_API_KEY"):
+            default_model = "gemini-2.5-flash"
+        else:
+            default_model = "meta/llama-3.3-70b-instruct"
+            
         response = await client.chat.completions.create(
             model=os.getenv("MODEL_NAME", default_model),
             messages=[
