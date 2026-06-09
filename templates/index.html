@@ -322,7 +322,7 @@
     <table>
         <thead>
             <tr>
-                <th>Date & Time (NYC)</th>
+                <th>Date &amp; Time</th>
                 <th>Target Website</th>
                 <th>Security</th>
                 <th>Tests Passed / Failed</th>
@@ -337,105 +337,67 @@
 
 <script>
 // ── State ──────────────────────────────────────────────────────────────────
-let isAnalyzing = false;
-let isRunning   = false;
-let analyzedUrl = null;
+let isRunning    = false;
+let activeUrl    = null;
+let awaitingCtx  = false;   // true when NEEDS_INPUT signal received
 
 // ── SSE ────────────────────────────────────────────────────────────────────
 const evtSource = new EventSource("/api/stream-logs");
 evtSource.onmessage = (e) => {
+    const msg = e.data;
+
+    // Special signal: automation is paused waiting for user context
+    if (msg.startsWith("NEEDS_INPUT:")) {
+        const parts = msg.replace("NEEDS_INPUT:", "").split("|");
+        showContextBox(parts[0], parts[1], parts[2]);
+        return;
+    }
+
     if (!isRunning) return;
-    logLine(e.data);
+    logLine(msg);
 
-    if (e.data.includes("Performing Static HTML Security Audit")) setStage("audit", 35);
-    if (e.data.includes("Discovering Page Elements"))             setStage("plan", 55);
-    if (e.data.includes("Generating test plan"))                  setProgress(70);
-    if (e.data.includes("Step 1/"))                               setStage("execute", 80);
-    if (e.data.includes("[Report]"))                              setStage("report", 96);
-
-    if (e.data.includes("--- COMPLETE ---")) {
+    if (msg.includes("Performing Deep Static HTML"))  setStage("audit",   35);
+    if (msg.includes("Discovering Page Elements"))     setStage("plan",    55);
+    if (msg.includes("Generating test plan"))          setProgress(70);
+    if (msg.includes("Step 1/"))                       setStage("execute", 80);
+    if (msg.includes("[Report]"))                      setStage("report",  96);
+    if (msg.includes("--- COMPLETE ---")) {
         setProgress(100);
         setTimeout(() => endRun(true), 600);
     }
-    if (e.data.includes("--- FAILED ---")) {
-        endRun(false);
-    }
+    if (msg.includes("--- FAILED ---")) endRun(false);
 };
 
-// ── Flow ───────────────────────────────────────────────────────────────────
+// ── Start ──────────────────────────────────────────────────────────────────
 async function handleStart() {
     const url = document.getElementById("urlInput").value.trim();
     if (!url) { alert("Please enter a URL"); return; }
 
-    const contextBox     = document.getElementById("contextBox");
-    const contextVisible = contextBox.style.display === "block";
-
-    // If context box is showing and user clicked again → proceed to run
-    if (contextVisible && analyzedUrl === url) {
-        await launchAutomation(url);
+    // If we are paused waiting for context, submit the context
+    if (awaitingCtx) {
+        await submitContext(url);
         return;
     }
 
-    // ── Step 1: Analyze ────────────────────────────────────────────────────
-    isAnalyzing = true;
-    contextBox.style.display = "none";
-    setBtnText("🔍 Analyzing Page...");
-    setDisabled(true);
-    showProgress();
-    setStage("analyze", 15);
-    showTerminal();
-    logLine("Analyzing page structure...");
-
-    try {
-        const res  = await fetch("/api/analyze", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url })
-        });
-        const data = await res.json();
-        isAnalyzing = false;
-        analyzedUrl = url;
-
-        if (data.needs_input) {
-            // Show the context prompt card with dynamic label and placeholder
-            document.getElementById("contextPromptMessage").innerText = data.prompt_message;
-            document.getElementById("contextLabel").innerText = data.field_label || "Your Input";
-            document.getElementById("contextInput").placeholder = data.placeholder || "Enter value here...";
-            contextBox.style.display = "block";
-            setProgress(20);
-            setBtnText("▶ Proceed with Automation");
-            setDisabled(false);
-            logLine(`[AI] ${data.field_label} required — ${data.prompt_message}`);
-        } else {
-            // No context needed — proceed directly
-            logLine("[AI] No special context needed. Proceeding with automation...");
-            await launchAutomation(url);
-        }
-    } catch (err) {
-        isAnalyzing = false;
-        logLine(`[Error] Analysis failed: ${err}`, "err");
-        setDisabled(false);
-        setBtnText("Commence Automation");
-    }
-}
-
-async function launchAutomation(url) {
-    const context = document.getElementById("contextInput").value.trim();
+    // Fresh run
+    activeUrl = url;
     isRunning = true;
+    awaitingCtx = false;
 
     document.getElementById("contextBox").style.display = "none";
     document.getElementById("contextInput").value = "";
-    analyzedUrl = null;
-
     setBtnText("⚙️ Automation in Progress...");
     setDisabled(true);
-    setStage("audit", 28);
+    showProgress();
+    setStage("analyze", 12);
+    showTerminal();
+    logLine(`Starting automation for: ${url}`);
 
     try {
         await fetch("/api/start-test", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url, context })
+            body: JSON.stringify({ url })
         });
     } catch (err) {
         logLine(`[Error] Failed to start: ${err}`, "err");
@@ -443,15 +405,48 @@ async function launchAutomation(url) {
     }
 }
 
+async function submitContext(url) {
+    const context = document.getElementById("contextInput").value.trim();
+    awaitingCtx = false;
+    document.getElementById("contextBox").style.display = "none";
+    setBtnText("⚙️ Continuing Automation...");
+    setDisabled(true);
+    setStage("plan", 55);
+    logLine(`[User] Context submitted: ${context || "(using defaults)"}`);
+
+    try {
+        await fetch("/api/submit-context", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, context })
+        });
+    } catch (err) {
+        logLine(`[Error] Failed to submit context: ${err}`, "err");
+        endRun(false);
+    }
+}
+
+function showContextBox(promptMsg, fieldLabel, placeholder) {
+    awaitingCtx = true;
+    document.getElementById("contextPromptMessage").innerText = promptMsg || "";
+    document.getElementById("contextLabel").innerText         = fieldLabel || "Required Input";
+    document.getElementById("contextInput").placeholder       = placeholder || "Enter value or leave blank for defaults";
+    document.getElementById("contextBox").style.display       = "block";
+    setBtnText("▶ Proceed with Automation");
+    setDisabled(false);
+    logLine(`[AI Detected] ${fieldLabel} required — fill in or leave blank for defaults`, "info");
+}
+
 function endRun(success) {
     isRunning = false;
+    awaitingCtx = false;
     setBtnText("Commence Automation");
     setDisabled(false);
     if (success) setTimeout(loadHistory, 1500);
 }
 
 // ── UI Helpers ─────────────────────────────────────────────────────────────
-function showProgress() { document.getElementById("progressWrap").style.display = "block"; }
+function showProgress()  { document.getElementById("progressWrap").style.display = "block"; }
 function showTerminal()  { document.getElementById("terminal").style.display = "block"; }
 function setDisabled(v)  { document.getElementById("startBtn").disabled = v; }
 function setBtnText(t)   { document.getElementById("startBtn").innerText = t; }
@@ -461,16 +456,14 @@ function setProgress(pct) {
 }
 
 const stageOrder = ["analyze","audit","plan","execute","report"];
-let currentStageIdx = -1;
 function setStage(stageId, pct) {
     const idx = stageOrder.indexOf(stageId);
     stageOrder.forEach((s, i) => {
         const el = document.getElementById("stage-" + s);
-        if (i < idx)  { el.className = "stage done"; }
-        else if(i === idx) { el.className = "stage active"; }
-        else { el.className = "stage"; }
+        if (i < idx)       el.className = "stage done";
+        else if (i === idx) el.className = "stage active";
+        else                el.className = "stage";
     });
-    currentStageIdx = idx;
     setProgress(pct);
 }
 
@@ -478,10 +471,10 @@ function logLine(msg, cls = "") {
     const term = document.getElementById("terminal");
     let type = cls;
     if (!type) {
-        if (msg.includes("[Error]") || msg.includes("error") || msg.includes("Failed")) type = "err";
-        else if (msg.includes("[Warning]") || msg.includes("Warning"))  type = "warn";
-        else if (msg.includes("---"))   type = "info";
-        else if (msg.includes("✅") || msg.includes("COMPLETE")) type = "success";
+        if (msg.includes("[Error]") || msg.includes("Critical") || msg.includes("FAILED")) type = "err";
+        else if (msg.includes("[Warning]")) type = "warn";
+        else if (msg.includes("---") || msg.includes("[AI")) type = "info";
+        else if (msg.includes("✅") || msg.includes("COMPLETE") || msg.includes("PASS")) type = "success";
     }
     const div = document.createElement("div");
     div.className = "line " + type;
@@ -512,8 +505,8 @@ async function loadHistory() {
                 <span style="color:var(--red);">${r.failed} failed</span>
             </td>
             <td>
-                <a href="/api/reports/${r.folder}/json" target="_blank" class="action-btn view">View JSON</a>
-                <a href="/api/reports/${r.folder}/txt" class="action-btn dl">⬇ Test Cases</a>
+                <a href="/api/reports/${r.folder}/view" target="_blank" class="action-btn view">📄 View Report</a>
+                <a href="/api/reports/${r.folder}/txt" class="action-btn dl">⬇ TXT</a>
             </td>
         </tr>
     `).join("");

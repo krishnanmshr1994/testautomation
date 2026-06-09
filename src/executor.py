@@ -1,13 +1,15 @@
 import json
+import re
 from playwright.async_api import Page
 from src.planner import TestPlan
 from src.browser_manager import ask_llm, distill_dom
 from src.logger import stream_log
 
-async def execute_plan(page: Page, plan: TestPlan) -> list:
+async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
     """
     Iterates through the test plan.
     Uses LLM to identify selectors, then Playwright to execute actions.
+    If live_reporter is provided, records each result immediately to disk.
     """
     results = []
 
@@ -37,7 +39,6 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
 If you cannot identify the element, respond with: {{"selector": null, "action": null, "value": null}}
 """
             raw = await ask_llm(selector_prompt, system="You are a Playwright automation expert. Respond only with JSON.")
-            import re
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             cleaned = match.group(0) if match else raw
             action_data = json.loads(cleaned)
@@ -46,6 +47,8 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
                 step_result["error"] = "LLM could not identify element selector."
                 step_result["details"] = "No matching selector found."
                 results.append(step_result)
+                if live_reporter:
+                    await live_reporter.record(intent, step_result)
                 continue
 
             selector = action_data["selector"]
@@ -57,16 +60,38 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
             if not element:
                 step_result["error"] = f"Selector '{selector}' not found on page."
                 results.append(step_result)
+                if live_reporter:
+                    await live_reporter.record(intent, step_result)
                 continue
 
-            if action == "fill" and value:
-                await element.fill(str(value))
-            elif action == "press":
-                await element.press(str(value) if value else "Enter")
-            else:
-                await element.click()
+            # Scroll element into view before interacting
+            try:
+                await element.scroll_into_view_if_needed(timeout=3000)
+            except Exception:
+                pass  # Not critical — proceed anyway
 
-            step_result["action_success"] = True
+            try:
+                if action == "fill" and value:
+                    await element.fill(str(value), timeout=5000)
+                elif action == "press":
+                    await element.press(str(value) if value else "Enter", timeout=5000)
+                else:
+                    # Try normal click first (respects visibility), fall back to force click
+                    try:
+                        await element.click(timeout=5000)
+                    except Exception:
+                        await stream_log(f"  [Fallback] Element not visible — trying force click on '{selector}'")
+                        await element.click(force=True, timeout=3000)
+
+                step_result["action_success"] = True
+
+            except Exception as action_err:
+                step_result["error"] = f"Action failed on '{selector}': {str(action_err)[:120]}"
+                step_result["details"] = "Element found but could not be interacted with (hidden/disabled/off-screen)."
+                results.append(step_result)
+                if live_reporter:
+                    await live_reporter.record(intent, step_result)
+                continue
 
             # Verify outcome: ask LLM to check if the expected outcome occurred
             page_text = await distill_dom(page)
@@ -96,5 +121,9 @@ Did the expected outcome occur? Respond ONLY with JSON:
             step_result["error"] = str(e)
 
         results.append(step_result)
+
+        # ── Write this result to disk immediately (parallel write) ──────────
+        if live_reporter:
+            await live_reporter.record(intent, step_result)
 
     return results
