@@ -171,6 +171,23 @@ async def run_automation(target: str,
             
     with open(os.path.join(run_dir, "report.json"), "w", encoding="utf-8") as f:
         json.dump(master_report, f, indent=2)
+        
+    # ── Combine all test_cases_report_*.txt files into one and delete them ──
+    master_txt_path = os.path.join(run_dir, "test_cases_report.txt")
+    import glob
+    txt_files = glob.glob(os.path.join(run_dir, "test_cases_report_*.txt"))
+    with open(master_txt_path, "w", encoding="utf-8") as outfile:
+        outfile.write("=" * 70 + "\n")
+        outfile.write(f"  MASTER QA & SECURITY TEST CASES REPORT\n")
+        outfile.write(f"  Target: {target}\n")
+        outfile.write("=" * 70 + "\n\n")
+        for fpath in txt_files:
+            try:
+                with open(fpath, "r", encoding="utf-8") as infile:
+                    outfile.write(infile.read() + "\n\n")
+                os.remove(fpath) # Clean up individual file
+            except Exception:
+                pass
     
     await close_browser()
     return master_report
