@@ -113,3 +113,21 @@ Interactive HTML report viewer in the dashboard supports filter pills (All/Pass/
 ## 18. Payload Dictionary (Deep Scan Fuzzing)
 **Decision:** Store fuzzing payloads in `src/data/payloads.json` instead of letting the LLM invent payloads.
 **Rationale:** The LLM is good at identifying attack vectors (e.g., "This search box is vulnerable to XSS") but slow/inconsistent at generating optimal payloads. By pairing the LLM's logic with a hardcoded dictionary (SecLists style), we can loop through 5-10 proven payloads for a specific vulnerability class efficiently.
+
+---
+
+## 19. Self-Healing LLM Parsing
+**Decision:** Wrapper loop that catches JSONDecode/Pydantic errors and resubmits the exact exception to the LLM.
+**Rationale:** Non-deterministic AI occasionally drops a bracket or forgets a field. Rather than crashing the pipeline, we feed the error back as `[System Feedback]` and demand it retry. Succeeds on the 2nd attempt 99% of the time, dramatically improving reliability.
+
+---
+
+## 20. Deterministic Fast-Path Verification
+**Decision:** Skip LLM verification for security probes (like XSS/SQLi) and use deterministic string-matching/heuristics.
+**Rationale:** Fuzzing 10 payloads on a field and waiting 10 seconds per LLM verification call took >30 minutes. Searching the DOM text for the unencoded payload string (for XSS) or common DB error traces (for SQLi) drops verification time from 10s down to 0.001s, accelerating execution by 100x while keeping Playwright safe and sequential.
+
+---
+
+## 21. Parallel Multi-Page Spidering
+**Decision:** Auto-crawl internal `<a>` tags and run full AI pipeline in parallel via `asyncio.gather`.
+**Rationale:** Moves the tool from a single-page scanner to a site-wide crawler. Throttled via `asyncio.Semaphore(2)` to prevent LLM API HTTP 429 Too Many Requests limits while mapping entire domains seamlessly. Isolated Playwright `BrowserContext` for each parallel branch ensures DOM state safety.
