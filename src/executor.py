@@ -115,16 +115,17 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
 
             try:
                 if action == "fill" and payload:
-                    await element.fill(str(payload), timeout=5000)
-                    await element.press("Enter", timeout=2000) # Auto-submit for fuzzing
+                    await element.fill(str(payload), timeout=10000)
+                    if intent.is_security_probe:
+                        await element.press("Enter", timeout=5000) # Auto-submit ONLY for security probes
                 elif action == "press":
-                    await element.press(str(payload) if payload else "Enter", timeout=5000)
+                    await element.press(str(payload) if payload else "Enter", timeout=10000)
                 else:
                     # Try normal click first (respects visibility), fall back to force click
                     try:
-                        await element.click(timeout=5000)
+                        await element.click(timeout=10000)
                     except Exception:
-                        await element.click(force=True, timeout=3000)
+                        await element.click(force=True, timeout=5000)
 
                 step_result["action_success"] = True
 
@@ -138,10 +139,10 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
 
             # Wait for navigation / DOM to settle after the action
             try:
-                await page.wait_for_load_state("networkidle", timeout=5000)
+                await page.wait_for_load_state("networkidle", timeout=10000)
             except Exception:
                 try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=2000)
+                    await page.wait_for_load_state("domcontentloaded", timeout=5000)
                 except Exception:
                     pass
 

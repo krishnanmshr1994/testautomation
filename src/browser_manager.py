@@ -20,6 +20,14 @@ async def distill_dom(page) -> str:
     elements (scripts, styles, svgs, classes) and returns a clean HTML skeleton.
     """
     js_code = """() => {
+        // Capture native HTML5 validation messages from the real DOM before cloning
+        let validationErrors = [];
+        document.querySelectorAll('input, select, textarea').forEach(el => {
+            if (el.validationMessage) {
+                validationErrors.push(`[Native Validation on ${el.name || el.id || el.type}]: ${el.validationMessage}`);
+            }
+        });
+
         const clone = document.body.cloneNode(true);
         // Remove junk tags
         const junk = clone.querySelectorAll('script, style, svg, noscript, iframe, path, meta, link');
@@ -35,7 +43,13 @@ async def distill_dom(page) -> str:
             el.removeAttribute('height');
         });
         
-        return clone.innerHTML;
+        let html = clone.innerHTML;
+        if (validationErrors.length > 0) {
+            html = `<div id="playwright-native-validation-errors" style="color:red; font-weight:bold;">\n` + 
+                   validationErrors.join('\\n') + 
+                   `\n</div>\n` + html;
+        }
+        return html;
     }"""
     distilled_html = await page.evaluate(js_code)
     # Strip excessive newlines and whitespace
