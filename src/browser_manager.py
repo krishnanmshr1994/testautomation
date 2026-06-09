@@ -8,6 +8,11 @@ _playwright = None
 _browser: Browser = None
 
 def get_ai_client() -> AsyncOpenAI:
+    if os.getenv("GROQ_API_KEY"):
+        return AsyncOpenAI(
+            base_url="https://api.groq.com/openai/v1",
+            api_key=os.getenv("GROQ_API_KEY"),
+        )
     if os.getenv("HF_TOKEN"):
         return AsyncOpenAI(
             base_url="https://api-inference.huggingface.co/v1/",
@@ -75,7 +80,9 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
-        if os.getenv("HF_TOKEN"):
+        if os.getenv("GROQ_API_KEY"):
+            default_model = "llama-3.3-70b-versatile"
+        elif os.getenv("HF_TOKEN"):
             default_model = "Qwen/Qwen2.5-72B-Instruct"
         elif os.getenv("GITHUB_TOKEN"):
             default_model = "gpt-4o-mini"
