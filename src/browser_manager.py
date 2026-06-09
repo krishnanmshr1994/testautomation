@@ -48,15 +48,14 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     client = get_ai_client()
     try:
         response = await client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "deepseek-ai/deepseek-v4-pro"),
+            model=os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct"),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
-            top_p=0.95,
-            max_tokens=8192,
-            extra_body={"chat_template_kwargs": {"thinking": False}},
+            temperature=0.2,
+            top_p=0.7,
+            max_tokens=4096,
             timeout=120.0
         )
         return response.choices[0].message.content
