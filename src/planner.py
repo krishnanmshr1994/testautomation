@@ -1,7 +1,7 @@
 import json
 from playwright.async_api import Page
 from pydantic import BaseModel, Field
-from typing import List
+from typing import List, Optional
 from src.browser_manager import ask_llm
 from src.logger import stream_log
 
@@ -9,6 +9,7 @@ class TestIntent(BaseModel):
     description: str = Field(..., description="Natural language action to perform")
     expected_outcome: str = Field(..., description="Expected result after the action")
     is_security_probe: bool = Field(False, description="True if this injects a security payload")
+    attack_type: Optional[str] = Field(None, description="The category of attack (e.g. XSS, SQLi) if this is a security probe")
 
 class TestPlan(BaseModel):
     intents: List[TestIntent]
