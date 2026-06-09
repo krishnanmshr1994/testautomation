@@ -98,8 +98,11 @@ async def init_browser(url_or_html: str, is_html: bool = False):
     """
     global _playwright, _browser
 
-    _playwright = await async_playwright().start()
-    _browser = await _playwright.chromium.launch(headless=True)
+    if _playwright is None:
+        _playwright = await async_playwright().start()
+    if _browser is None:
+        _browser = await _playwright.chromium.launch(headless=True)
+        
     context: BrowserContext = await _browser.new_context()
     page: Page = await context.new_page()
 

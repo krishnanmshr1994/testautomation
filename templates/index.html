@@ -325,8 +325,14 @@
     <h1>Autonomous QA & Security Agent</h1>
     <p class="subtitle">Enter a target website URL and the AI will automatically inspect the page, plan test cases, and perform a full security audit — all in real-time.</p>
 
-    <label for="urlInput">Target Website URL</label>
-    <input type="text" id="urlInput" placeholder="https://example.com">
+    <label class="form-label text-gray-300">Target URL</label>
+    <div class="flex space-x-4">
+        <input type="url" id="urlInput" class="form-input flex-1" placeholder="https://example.com" required>
+        <div class="flex items-center space-x-2 bg-[#252525] px-3 py-2 rounded-lg border border-[#333]">
+            <label class="text-sm text-gray-400 whitespace-nowrap">Crawl Pages:</label>
+            <input type="number" id="max_pages" class="bg-transparent text-white w-12 text-center focus:outline-none" value="1" min="1" max="5">
+        </div>
+    </div>
 
     <label for="customTestsInput">Custom Test Cases (Optional)</label>
     <textarea id="customTestsInput" placeholder="Test: Search for 'shoes'&#10;Expected: Search results for shoes are displayed" rows="3"></textarea>
@@ -426,8 +432,10 @@ async function handleStart() {
     const customTests = document.getElementById("customTestsInput").value.trim();
     const runAudit = document.getElementById("runAudit").checked;
     const runFunc = document.getElementById("runFunc").checked;
-    const runProbes = document.getElementById("runProbes").checked;
-    if (!url) { alert("Please enter a URL"); return; }
+    const runProbes = document.getElementById('runProbes').checked;
+    const maxPages = parseInt(document.getElementById('max_pages').value) || 1;
+
+    if (!url) return alert('Please enter a URL');
 
     // If we are paused waiting for context, submit the context
     if (awaitingCtx) {
@@ -458,7 +466,8 @@ async function handleStart() {
                 custom_tests: customTests,
                 run_audit: runAudit,
                 run_functional: runFunc,
-                run_probes: runProbes
+                run_probes: runProbes,
+                max_pages: maxPages
             })
         });
     } catch (err) {

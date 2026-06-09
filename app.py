@@ -30,13 +30,14 @@ async def start_test():
     run_audit        = data.get("run_audit", True)
     run_functional   = data.get("run_functional", True)
     run_probes       = data.get("run_probes", True)
+    max_pages        = data.get("max_pages", 1)
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
     q = asyncio.Queue()
     _context_queues[url] = q
 
-    asyncio.create_task(run_background_automation(url, q, custom_tests_raw, run_audit, run_functional, run_probes))
+    asyncio.create_task(run_background_automation(url, q, custom_tests_raw, run_audit, run_functional, run_probes, max_pages))
     return jsonify({"status": "started"})
 
 
@@ -62,13 +63,15 @@ async def run_background_automation(url: str, context_queue: asyncio.Queue,
                                     custom_tests_raw: str = "",
                                     run_audit: bool = True,
                                     run_functional: bool = True,
-                                    run_probes: bool = True):
+                                    run_probes: bool = True,
+                                    max_pages: int = 1):
     await stream_logger.log("--- INIT ---")
     report = await run_automation(url, is_html=False,
                                   custom_tests_raw=custom_tests_raw,
                                   run_audit=run_audit,
                                   run_functional=run_functional,
                                   run_probes=run_probes,
+                                  max_pages=max_pages,
                                   context_queue=context_queue)
     _context_queues.pop(url, None)
     if report:

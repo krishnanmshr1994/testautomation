@@ -14,6 +14,89 @@ load_dotenv()
 NEEDS_INPUT_PREFIX = "NEEDS_INPUT:"
 
 
+async def crawl_internal_links(base_url: str, page, max_pages: int) -> list:
+    if max_pages <= 1:
+        return [base_url]
+    await stream_log(f"[Crawler] Spidering {base_url} for internal links...")
+    links = await page.evaluate("""() => {
+        return Array.from(document.querySelectorAll('a'))
+            .map(a => a.href)
+            .filter(href => href && href.startsWith('http'));
+    }""")
+    from urllib.parse import urlparse
+    base_domain = urlparse(base_url).netloc
+    unique_links = {base_url}
+    for link in links:
+        if len(unique_links) >= max_pages: break
+        if urlparse(link).netloc == base_domain:
+            unique_links.add(link)
+    urls_to_test = list(unique_links)
+    await stream_log(f"[Crawler] Found {len(urls_to_test)} pages: {', '.join(urls_to_test)}")
+    return urls_to_test
+
+
+async def run_single_page(url: str,
+                          is_html: bool,
+                          extra_context: str,
+                          custom_tests_raw: str,
+                          run_audit: bool,
+                          run_functional: bool,
+                          run_probes: bool,
+                          context_queue: asyncio.Queue,
+                          semaphore: asyncio.Semaphore) -> dict:
+    async with semaphore:
+        await stream_log(f"\n[{url}] Starting automation")
+        page = await init_browser(url, is_html)
+        if not page:
+            await stream_log(f"[{url}] Failed to load page.")
+            return {}
+
+        try:
+            # ── 2. Static Audit ────────────────────────────────────────────────────
+            if run_audit:
+                audit_result = await perform_static_audit(page)
+            else:
+                await stream_log(f"[{url}] Skipping Static Security Audit")
+                audit_result = None
+
+            # ── 2b. Context Analysis ──────────────────────────────────────────────
+            if not extra_context:
+                context_info = await analyze_for_required_context(page)
+                if context_info and context_queue is not None:
+                    signal = f"{NEEDS_INPUT_PREFIX}{context_info['prompt_message']}|{context_info['field_label']}|{context_info['placeholder']}"
+                    await stream_log(signal)
+                    await stream_log(f"[{url}] Waiting for user input...")
+                    try:
+                        extra_context = await asyncio.wait_for(context_queue.get(), timeout=120)
+                    except asyncio.TimeoutError:
+                        await stream_log(f"[{url}] No context received. Using defaults.")
+                        extra_context = ""
+                elif context_info:
+                    await stream_log(f"[{url}] Context detected: {context_info['field_label']} — using defaults.")
+
+            if extra_context:
+                await stream_log(f"[{url}] User Context Applied: {extra_context}")
+
+            # ── 3. Generate Test Plan ──────────────────────────────────────────────
+            test_plan = await generate_test_plan(page, extra_context, custom_tests_raw, run_functional, run_probes)
+
+            # ── 4. Initialize Live Reporter ───────────────────────────────────────
+            live_reporter = LiveReporter(url)
+            await live_reporter.initialize(audit_result, test_plan)
+
+            # ── 5. Execute ────────────────────────────────────────────────────────
+            await execute_plan(page, test_plan, live_reporter=live_reporter)
+
+            # ── 6. Finalize ───────────────────────────────────────────────────────
+            return await live_reporter.finalize()
+
+        except Exception as e:
+            await stream_log(f"[{url}] Critical error: {str(e)}")
+            return {}
+        finally:
+            await page.context.close()
+
+
 async def run_automation(target: str,
                          is_html: bool = False,
                          extra_context: str = "",
@@ -21,87 +104,38 @@ async def run_automation(target: str,
                          run_audit: bool = True,
                          run_functional: bool = True,
                          run_probes: bool = True,
+                         max_pages: int = 1,
                          context_queue: asyncio.Queue = None) -> dict:
-    """
-    Single browser session:
-      1. Open browser
-      2. Static security audit
-      3. Analyze for required context → if needed, pause and wait for user input
-      4. Generate test plan
-      5. Execute (writing results live)
-      6. Finalize report
-    """
-    await stream_log(f"Starting automation for: {target}")
-    page = await init_browser(target, is_html)
-
-    if not page:
-        await stream_log("Failed to load page. Exiting.")
+    
+    # Discovery Phase
+    discovery_page = await init_browser(target, is_html)
+    if not discovery_page:
         return {}
+        
+    urls_to_test = await crawl_internal_links(target, discovery_page, max_pages)
+    await discovery_page.context.close()
 
-    try:
-        # ── 2. Static Audit ────────────────────────────────────────────────────
-        if run_audit:
-            audit_result = await perform_static_audit(page)
-        else:
-            await stream_log("\n--- Skipping Static Security Audit (Disabled by User) ---")
-            audit_result = None
+    # Parallel Execution Phase
+    semaphore = asyncio.Semaphore(2) # Throttle LLM and browser contexts
+    tasks = []
+    
+    for url in urls_to_test:
+        tasks.append(run_single_page(
+            url, is_html, extra_context, custom_tests_raw, 
+            run_audit, run_functional, run_probes, 
+            context_queue, semaphore
+        ))
+        
+    results = await asyncio.gather(*tasks)
+    
+    await close_browser()
+    return {"pages_tested": len(results), "reports": results}
 
-        # ── 2b. Context Analysis (Wait for User if needed) ────────────────────────
-        if not extra_context:
-            context_info = await analyze_for_required_context(page)
-            if context_info and context_queue is not None:
-                # Signal the frontend to show the context prompt
-                signal = (
-                    f"{NEEDS_INPUT_PREFIX}"
-                    f"{context_info['prompt_message']}|"
-                    f"{context_info['field_label']}|"
-                    f"{context_info['placeholder']}"
-                )
-                await stream_log(signal)
-
-                # Pause — wait for user to submit context (or skip with blank)
-                await stream_log("[Waiting for user input... submit the form or leave blank to continue with defaults]")
-                try:
-                    extra_context = await asyncio.wait_for(context_queue.get(), timeout=120)
-                except asyncio.TimeoutError:
-                    await stream_log("[Timeout] No context received. Using defaults.")
-                    extra_context = ""
-            elif context_info:
-                # CLI mode — skip interactive prompt, use defaults
-                await stream_log(f"[Context detected] {context_info['field_label']} — using defaults.")
-
-        if extra_context:
-            await stream_log(f"[User Context Applied] {extra_context}")
-
-        # ── 3. Generate Test Plan ──────────────────────────────────────────────
-        test_plan = await generate_test_plan(page, extra_context, custom_tests_raw, run_functional, run_probes)
-
-        # ── 4. Initialize Live Reporter (writes header + audit to disk NOW) ────
-        live_reporter = LiveReporter(target)
-        await live_reporter.initialize(audit_result, test_plan)
-
-        # ── 5. Execute (each result written to disk immediately after) ─────────
-        await execute_plan(page, test_plan, live_reporter=live_reporter)
-
-        # ── 6. Finalize (summary + JSON) ──────────────────────────────────────
-        report_data = await live_reporter.finalize()
-        return report_data
-
-    except Exception as e:
-        await stream_log(f"Critical error during automation: {str(e)}")
-        return {}
-    finally:
-        await close_browser()
-
-
-# ── CLI entry-point ────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     print("=" * 50)
     print("  AI QA & Security Automation Agent")
     print("=" * 50)
     test_target = input("\nEnter the website URL to test: ").strip()
     if not test_target:
-        print("No URL provided. Exiting.")
         sys.exit(1)
-    print(f"\nTesting {test_target}...\n")
     asyncio.run(run_automation(test_target, is_html=False))
