@@ -447,6 +447,7 @@ async function handleStart() {
     activeUrl = url;
     isRunning = true;
     awaitingCtx = false;
+    currentProgress = 0;
 
     document.getElementById("contextBox").style.display = "none";
     document.getElementById("contextInput").value = "";
@@ -522,12 +523,17 @@ function showTerminal()  { document.getElementById("terminal").style.display = "
 function setDisabled(v)  { document.getElementById("startBtn").disabled = v; }
 function setBtnText(t)   { document.getElementById("startBtn").innerText = t; }
 
+let currentProgress = 0;
+
 function setProgress(pct) {
+    if (pct < currentProgress && pct !== 0) return; // Prevent backward jumps
+    currentProgress = pct;
     document.getElementById("progressBar").style.width = pct + "%";
 }
 
 const stageOrder = ["analyze","audit","plan","execute","report"];
 function setStage(stageId, pct) {
+    if (pct < currentProgress && pct !== 0) return; // Prevent backward jumps
     const idx = stageOrder.indexOf(stageId);
     stageOrder.forEach((s, i) => {
         const el = document.getElementById("stage-" + s);
