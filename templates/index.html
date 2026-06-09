@@ -7,334 +7,519 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-color: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --border-color: rgba(255, 255, 255, 0.1);
-            --accent-glow: 0 0 20px rgba(56, 189, 248, 0.5);
+            --bg: #0f172a;
+            --card: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
             --primary: #38bdf8;
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
+            --purple: #a855f7;
+            --green: #10b981;
+            --red: #ef4444;
+            --yellow: #f59e0b;
+            --muted: #94a3b8;
+            --glow: 0 0 20px rgba(56, 189, 248, 0.4);
         }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
 
         body {
             font-family: 'Inter', sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-main);
-            margin: 0;
-            padding: 40px;
+            background: var(--bg);
+            color: #f8fafc;
+            min-height: 100vh;
+            padding: 40px 20px;
             display: flex;
             flex-direction: column;
             align-items: center;
-            min-height: 100vh;
-            background-image: 
-                radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.1), transparent 25%),
-                radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.1), transparent 25%);
+            background-image:
+                radial-gradient(circle at 15% 50%, rgba(56,189,248,0.08), transparent 30%),
+                radial-gradient(circle at 85% 20%, rgba(168,85,247,0.08), transparent 30%);
         }
 
         .glass-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(16px);
-            border: 1px solid var(--border-color);
+            background: var(--card);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
             border-radius: 24px;
             padding: 40px;
             width: 100%;
-            max-width: 900px;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
-            margin-bottom: 40px;
+            max-width: 920px;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.5);
+            margin-bottom: 32px;
         }
 
         h1 {
+            font-size: 2.2rem;
             font-weight: 800;
-            font-size: 2.5rem;
-            margin-top: 0;
-            background: linear-gradient(to right, #38bdf8, #a855f7);
+            background: linear-gradient(to right, var(--primary), var(--purple));
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
         }
 
-        .input-group {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            margin-bottom: 24px;
-        }
+        .subtitle { color: var(--muted); margin-bottom: 32px; line-height: 1.6; }
 
         label {
-            font-size: 0.9rem;
+            display: block;
+            font-size: 0.85rem;
             font-weight: 600;
-            color: var(--text-muted);
+            color: var(--muted);
+            margin-bottom: 8px;
         }
 
         input[type="text"] {
-            background: rgba(15, 23, 42, 0.8);
-            border: 1px solid var(--border-color);
-            padding: 16px;
+            width: 100%;
+            background: rgba(15,23,42,0.8);
+            border: 1px solid var(--border);
+            padding: 14px 18px;
             border-radius: 12px;
             color: white;
             font-size: 1rem;
+            font-family: inherit;
             outline: none;
-            transition: all 0.3s ease;
+            transition: border 0.2s, box-shadow 0.2s;
+            margin-bottom: 20px;
         }
 
         input[type="text"]:focus {
             border-color: var(--primary);
-            box-shadow: var(--accent-glow);
+            box-shadow: var(--glow);
         }
 
-        button {
-            background: linear-gradient(135deg, #38bdf8, #818cf8);
-            border: none;
-            padding: 16px 32px;
-            border-radius: 12px;
-            color: white;
-            font-size: 1.1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);
-            width: 100%;
-        }
-
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--accent-glow);
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
-            box-shadow: none;
-        }
-
-        /* Terminal Logs */
-        .terminal {
-            background: #020617;
-            border-radius: 12px;
-            border: 1px solid var(--border-color);
-            padding: 20px;
-            font-family: monospace;
-            font-size: 0.9rem;
-            height: 300px;
-            overflow-y: auto;
-            color: #10b981;
-            margin-top: 20px;
+        /* Context prompt box — shown dynamically */
+        #contextBox {
             display: none;
-            scroll-behavior: smooth;
+            background: rgba(56,189,248,0.06);
+            border: 1px solid rgba(56,189,248,0.3);
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 20px;
+            animation: fadeIn 0.4s ease;
         }
 
-        .terminal span.error { color: #ef4444; }
-        .terminal span.info { color: #3b82f6; }
-        .terminal span.warn { color: #f59e0b; }
+        #contextBox .context-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        #contextBox .badge {
+            background: rgba(56,189,248,0.2);
+            color: var(--primary);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            letter-spacing: 0.05em;
+        }
+
+        #contextPromptMessage {
+            color: #cbd5e1;
+            font-size: 0.95rem;
+            margin-bottom: 14px;
+            line-height: 1.5;
+        }
+
+        #contextInput {
+            width: 100%;
+            background: rgba(15,23,42,0.8);
+            border: 1px solid var(--border);
+            padding: 12px 16px;
+            border-radius: 10px;
+            color: white;
+            font-size: 0.95rem;
+            font-family: inherit;
+            outline: none;
+            margin-bottom: 0;
+            transition: border 0.2s;
+        }
+
+        #contextInput:focus { border-color: var(--primary); }
+
+        .skip-note {
+            color: var(--muted);
+            font-size: 0.8rem;
+            margin-top: 8px;
+        }
+
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.05rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.25s;
+        }
+
+        #startBtn {
+            background: linear-gradient(135deg, var(--primary), var(--purple));
+            color: white;
+            box-shadow: 0 4px 20px rgba(56,189,248,0.25);
+        }
+
+        #startBtn:hover:not(:disabled) { transform: translateY(-2px); box-shadow: var(--glow); }
+        #startBtn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
         /* Progress Bar */
-        .progress-container {
-            width: 100%;
-            height: 8px;
-            background: rgba(255,255,255,0.1);
-            border-radius: 4px;
-            margin-top: 30px;
-            overflow: hidden;
+        .progress-wrap {
+            margin-top: 24px;
             display: none;
         }
-        
+
+        .stages {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        .stage {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--muted);
+            transition: color 0.4s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .stage.active { color: var(--primary); }
+        .stage.done { color: var(--green); }
+        .stage .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--muted);
+            transition: background 0.4s;
+        }
+        .stage.active .dot { background: var(--primary); box-shadow: 0 0 8px var(--primary); }
+        .stage.done .dot { background: var(--green); }
+
+        .progress-track {
+            height: 6px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
         .progress-bar {
             height: 100%;
             width: 0%;
-            background: linear-gradient(90deg, #38bdf8, #a855f7);
-            transition: width 0.5s ease;
-            box-shadow: var(--accent-glow);
+            background: linear-gradient(90deg, var(--primary), var(--purple));
+            border-radius: 3px;
+            transition: width 0.6s ease;
+            box-shadow: var(--glow);
         }
 
-        /* Report History Table */
-        .history-table {
-            width: 100%;
-            border-collapse: collapse;
+        /* Terminal */
+        .terminal {
+            display: none;
+            background: #020617;
+            border: 1px solid rgba(56,189,248,0.15);
+            border-radius: 12px;
+            padding: 20px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            height: 280px;
+            overflow-y: auto;
             margin-top: 20px;
+            animation: fadeIn 0.3s ease;
         }
-        
-        .history-table th, .history-table td {
-            text-align: left;
-            padding: 16px;
-            border-bottom: 1px solid var(--border-color);
-        }
-        
-        .history-table th {
-            color: var(--text-muted);
+
+        .terminal .line { padding: 1px 0; line-height: 1.5; }
+        .terminal .line::before { content: '> '; color: var(--primary); }
+        .terminal .err::before { color: var(--red); }
+        .terminal .warn::before { color: var(--yellow); }
+        .terminal .info::before { color: var(--purple); }
+        .terminal .success::before { color: var(--green); }
+
+        /* History Table */
+        h2 { font-size: 1.4rem; font-weight: 700; margin-bottom: 20px; }
+
+        table { width: 100%; border-collapse: collapse; }
+        th { color: var(--muted); font-size: 0.8rem; font-weight: 600; text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border); }
+        td { padding: 14px; border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.9rem; }
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: rgba(255,255,255,0.02); }
+
+        .tag {
+            display: inline-block;
+            padding: 3px 10px;
+            border-radius: 999px;
+            font-size: 0.75rem;
             font-weight: 600;
-            font-size: 0.9rem;
         }
-        
-        .history-table tr:last-child td {
-            border-bottom: none;
-        }
+        .tag.vuln { background: rgba(239,68,68,0.15); color: var(--red); }
+        .tag.safe { background: rgba(16,185,129,0.15); color: var(--green); }
 
         .action-btn {
-            background: rgba(255, 255, 255, 0.1);
-            padding: 8px 16px;
-            border-radius: 8px;
-            color: white;
-            text-decoration: none;
-            font-size: 0.85rem;
-            margin-right: 8px;
             display: inline-block;
+            padding: 7px 14px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-decoration: none;
+            margin-right: 6px;
             transition: 0.2s;
         }
+        .action-btn.view { background: rgba(255,255,255,0.08); color: #e2e8f0; }
+        .action-btn.view:hover { background: rgba(255,255,255,0.14); }
+        .action-btn.dl { background: rgba(56,189,248,0.12); color: var(--primary); }
+        .action-btn.dl:hover { background: rgba(56,189,248,0.22); }
 
-        .action-btn:hover {
-            background: rgba(255, 255, 255, 0.2);
-        }
+        .empty-state { text-align: center; color: var(--muted); padding: 40px 0; }
 
-        .action-btn.download {
-            background: rgba(56, 189, 248, 0.2);
-            color: #38bdf8;
-        }
-        .action-btn.download:hover {
-            background: rgba(56, 189, 248, 0.3);
-        }
-
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
     </style>
 </head>
 <body>
 
-    <!-- Automation Launcher -->
-    <div class="glass-card">
-        <h1>Autonomous QA & Security Agent</h1>
-        <p style="color: var(--text-muted); margin-bottom: 30px;">
-            Enter a target website to automatically discover elements, generate intelligent test plans, and perform a complete security audit.
-        </p>
+<!-- ── Launcher Card ─────────────────────────────────────────────────────── -->
+<div class="glass-card">
+    <h1>Autonomous QA & Security Agent</h1>
+    <p class="subtitle">Enter a target website URL and the AI will automatically inspect the page, plan test cases, and perform a full security audit — all in real-time.</p>
 
-        <div class="input-group">
-            <label>Target Website URL</label>
-            <input type="text" id="urlInput" placeholder="https://example.com" value="https://example.com">
+    <label for="urlInput">Target Website URL</label>
+    <input type="text" id="urlInput" placeholder="https://example.com">
+
+    <!-- Context prompt — injected by AI only when needed -->
+    <div id="contextBox">
+        <div class="context-header">
+            <span class="badge">AI DETECTED</span>
+            <span style="font-weight:600; font-size:0.9rem;">User Input Required</span>
         </div>
+        <p id="contextPromptMessage"></p>
+        <label id="contextLabel" for="contextInput" style="margin-top:4px; margin-bottom:6px;"></label>
+        <input type="text" id="contextInput">
+        <p class="skip-note">💡 Leave blank to automatically use sensible default test values.</p>
+    </div>
 
-        <div class="input-group">
-            <label>Optional Context / Credentials (e.g., "Use user: admin, pass: 1234")</label>
-            <input type="text" id="contextInput" placeholder="Leave blank to use random placeholder data">
+    <button class="btn" id="startBtn" onclick="handleStart()">Commence Automation</button>
+
+    <!-- Progress -->
+    <div class="progress-wrap" id="progressWrap">
+        <div class="stages">
+            <span class="stage" id="stage-analyze"><span class="dot"></span>Analyzing</span>
+            <span class="stage" id="stage-audit"><span class="dot"></span>Security Audit</span>
+            <span class="stage" id="stage-plan"><span class="dot"></span>Planning</span>
+            <span class="stage" id="stage-execute"><span class="dot"></span>Executing</span>
+            <span class="stage" id="stage-report"><span class="dot"></span>Reporting</span>
         </div>
-
-        <button id="startBtn" onclick="startTest()">Commence Automation</button>
-
-        <div class="progress-container" id="progressContainer">
+        <div class="progress-track">
             <div class="progress-bar" id="progressBar"></div>
         </div>
-
-        <div class="terminal" id="terminal"></div>
     </div>
 
-    <!-- Report History -->
-    <div class="glass-card">
-        <h2 style="margin-top:0;">Execution History</h2>
-        <table class="history-table" id="historyTable">
-            <thead>
-                <tr>
-                    <th>Date & Time</th>
-                    <th>Target Website</th>
-                    <th>Security Vulns</th>
-                    <th>Passed/Failed</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                <!-- Populated via JS -->
-            </tbody>
-        </table>
-    </div>
+    <div class="terminal" id="terminal"></div>
+</div>
 
-    <script>
-        // Setup SSE listener for real-time logs
-        const evtSource = new EventSource("/api/stream-logs");
-        const terminal = document.getElementById("terminal");
-        const progressBar = document.getElementById("progressBar");
-        const progressContainer = document.getElementById("progressContainer");
-        const startBtn = document.getElementById("startBtn");
+<!-- ── History Card ──────────────────────────────────────────────────────── -->
+<div class="glass-card">
+    <h2>Execution History</h2>
+    <table>
+        <thead>
+            <tr>
+                <th>Date & Time (NYC)</th>
+                <th>Target Website</th>
+                <th>Security</th>
+                <th>Tests Passed / Failed</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody id="historyBody">
+            <tr><td colspan="5" class="empty-state">No reports yet — run your first automation above!</td></tr>
+        </tbody>
+    </table>
+</div>
 
-        let currentProgress = 0;
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let isAnalyzing = false;
+let isRunning   = false;
+let analyzedUrl = null;
 
-        evtSource.onmessage = function(event) {
-            if(!startBtn.disabled) return; // Only process logs if running
+// ── SSE ────────────────────────────────────────────────────────────────────
+const evtSource = new EventSource("/api/stream-logs");
+evtSource.onmessage = (e) => {
+    if (!isRunning) return;
+    logLine(e.data);
 
-            const msg = event.data;
-            terminal.style.display = "block";
-            
-            // Apply some basic syntax highlighting
-            let className = "";
-            if(msg.includes("[Error]") || msg.includes("Failed") || msg.includes("Critical")) className = "error";
-            if(msg.includes("---")) className = "info";
+    if (e.data.includes("Performing Static HTML Security Audit")) setStage("audit", 35);
+    if (e.data.includes("Discovering Page Elements"))             setStage("plan", 55);
+    if (e.data.includes("Generating test plan"))                  setProgress(70);
+    if (e.data.includes("Step 1/"))                               setStage("execute", 80);
+    if (e.data.includes("[Report]"))                              setStage("report", 96);
 
-            terminal.innerHTML += `<div class="${className}">> ${msg}</div>`;
-            terminal.scrollTop = terminal.scrollHeight;
+    if (e.data.includes("--- COMPLETE ---")) {
+        setProgress(100);
+        setTimeout(() => endRun(true), 600);
+    }
+    if (e.data.includes("--- FAILED ---")) {
+        endRun(false);
+    }
+};
 
-            // Fake progress tracking based on log messages
-            if(msg.includes("Starting automation")) updateProgress(10);
-            if(msg.includes("Performing Static HTML Security Audit")) updateProgress(30);
-            if(msg.includes("Discovering Page Elements")) updateProgress(50);
-            if(msg.includes("Generating test plan")) updateProgress(70);
-            if(msg.includes("Step 1/")) updateProgress(85);
-            if(msg.includes("--- COMPLETE ---")) {
-                updateProgress(100);
-                startBtn.disabled = false;
-                startBtn.innerText = "Commence Automation";
-                setTimeout(loadHistory, 2000); // Reload history after completion
-            }
-        };
+// ── Flow ───────────────────────────────────────────────────────────────────
+async function handleStart() {
+    const url = document.getElementById("urlInput").value.trim();
+    if (!url) { alert("Please enter a URL"); return; }
 
-        function updateProgress(percent) {
-            currentProgress = Math.max(currentProgress, percent);
-            progressContainer.style.display = "block";
-            progressBar.style.width = currentProgress + "%";
+    const contextBox     = document.getElementById("contextBox");
+    const contextVisible = contextBox.style.display === "block";
+
+    // If context box is showing and user clicked again → proceed to run
+    if (contextVisible && analyzedUrl === url) {
+        await launchAutomation(url);
+        return;
+    }
+
+    // ── Step 1: Analyze ────────────────────────────────────────────────────
+    isAnalyzing = true;
+    contextBox.style.display = "none";
+    setBtnText("🔍 Analyzing Page...");
+    setDisabled(true);
+    showProgress();
+    setStage("analyze", 15);
+    showTerminal();
+    logLine("Analyzing page structure...");
+
+    try {
+        const res  = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url })
+        });
+        const data = await res.json();
+        isAnalyzing = false;
+        analyzedUrl = url;
+
+        if (data.needs_input) {
+            // Show the context prompt card with dynamic label and placeholder
+            document.getElementById("contextPromptMessage").innerText = data.prompt_message;
+            document.getElementById("contextLabel").innerText = data.field_label || "Your Input";
+            document.getElementById("contextInput").placeholder = data.placeholder || "Enter value here...";
+            contextBox.style.display = "block";
+            setProgress(20);
+            setBtnText("▶ Proceed with Automation");
+            setDisabled(false);
+            logLine(`[AI] ${data.field_label} required — ${data.prompt_message}`);
+        } else {
+            // No context needed — proceed directly
+            logLine("[AI] No special context needed. Proceeding with automation...");
+            await launchAutomation(url);
         }
+    } catch (err) {
+        isAnalyzing = false;
+        logLine(`[Error] Analysis failed: ${err}`, "err");
+        setDisabled(false);
+        setBtnText("Commence Automation");
+    }
+}
 
-        async function startTest() {
-            const url = document.getElementById("urlInput").value;
-            const context = document.getElementById("contextInput").value;
-            
-            if(!url) return alert("Please enter a URL");
+async function launchAutomation(url) {
+    const context = document.getElementById("contextInput").value.trim();
+    isRunning = true;
 
-            startBtn.disabled = true;
-            startBtn.innerText = "Automation in Progress...";
-            terminal.innerHTML = "";
-            currentProgress = 0;
-            updateProgress(5);
+    document.getElementById("contextBox").style.display = "none";
+    document.getElementById("contextInput").value = "";
+    analyzedUrl = null;
 
-            try {
-                await fetch("/api/start-test", {
-                    method: "POST",
-                    headers: {"Content-Type": "application/json"},
-                    body: JSON.stringify({url, context})
-                });
-            } catch (e) {
-                alert("Failed to start test: " + e);
-                startBtn.disabled = false;
-                startBtn.innerText = "Commence Automation";
-            }
-        }
+    setBtnText("⚙️ Automation in Progress...");
+    setDisabled(true);
+    setStage("audit", 28);
 
-        async function loadHistory() {
-            const res = await fetch("/api/reports");
-            const reports = await res.json();
-            const tbody = document.querySelector("#historyTable tbody");
-            tbody.innerHTML = "";
+    try {
+        await fetch("/api/start-test", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url, context })
+        });
+    } catch (err) {
+        logLine(`[Error] Failed to start: ${err}`, "err");
+        endRun(false);
+    }
+}
 
-            reports.forEach(r => {
-                const tr = document.createElement("tr");
-                tr.innerHTML = `
-                    <td>${r.date}</td>
-                    <td style="font-weight:600; color:var(--primary);">${r.url}</td>
-                    <td>${r.vulnerabilities > 0 ? `<span style="color:#ef4444; font-weight:bold;">${r.vulnerabilities} Found</span>` : '<span style="color:#10b981;">0</span>'}</td>
-                    <td><span style="color:#10b981;">${r.passed}</span> / <span style="color:#ef4444;">${r.failed}</span></td>
-                    <td>
-                        <a href="/api/reports/${r.folder}/json" target="_blank" class="action-btn">View JSON</a>
-                        <a href="/api/reports/${r.folder}/txt" class="action-btn download">Download Test Cases</a>
-                    </td>
-                `;
-                tbody.appendChild(tr);
-            });
-        }
+function endRun(success) {
+    isRunning = false;
+    setBtnText("Commence Automation");
+    setDisabled(false);
+    if (success) setTimeout(loadHistory, 1500);
+}
 
-        // Initial load
-        loadHistory();
-    </script>
+// ── UI Helpers ─────────────────────────────────────────────────────────────
+function showProgress() { document.getElementById("progressWrap").style.display = "block"; }
+function showTerminal()  { document.getElementById("terminal").style.display = "block"; }
+function setDisabled(v)  { document.getElementById("startBtn").disabled = v; }
+function setBtnText(t)   { document.getElementById("startBtn").innerText = t; }
+
+function setProgress(pct) {
+    document.getElementById("progressBar").style.width = pct + "%";
+}
+
+const stageOrder = ["analyze","audit","plan","execute","report"];
+let currentStageIdx = -1;
+function setStage(stageId, pct) {
+    const idx = stageOrder.indexOf(stageId);
+    stageOrder.forEach((s, i) => {
+        const el = document.getElementById("stage-" + s);
+        if (i < idx)  { el.className = "stage done"; }
+        else if(i === idx) { el.className = "stage active"; }
+        else { el.className = "stage"; }
+    });
+    currentStageIdx = idx;
+    setProgress(pct);
+}
+
+function logLine(msg, cls = "") {
+    const term = document.getElementById("terminal");
+    let type = cls;
+    if (!type) {
+        if (msg.includes("[Error]") || msg.includes("error") || msg.includes("Failed")) type = "err";
+        else if (msg.includes("[Warning]") || msg.includes("Warning"))  type = "warn";
+        else if (msg.includes("---"))   type = "info";
+        else if (msg.includes("✅") || msg.includes("COMPLETE")) type = "success";
+    }
+    const div = document.createElement("div");
+    div.className = "line " + type;
+    div.textContent = msg;
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+}
+
+// ── History ────────────────────────────────────────────────────────────────
+async function loadHistory() {
+    const res     = await fetch("/api/reports");
+    const reports = await res.json();
+    const tbody   = document.getElementById("historyBody");
+    if (!reports.length) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No reports yet — run your first automation above!</td></tr>';
+        return;
+    }
+    tbody.innerHTML = reports.map(r => `
+        <tr>
+            <td style="color:var(--muted); font-size:0.85rem;">${r.date}</td>
+            <td><span style="color:var(--primary); font-weight:600;">${r.url}</span></td>
+            <td>${r.vulnerabilities > 0
+                ? `<span class="tag vuln">⚠ ${r.vulnerabilities} Found</span>`
+                : `<span class="tag safe">✓ Clean</span>`}</td>
+            <td>
+                <span style="color:var(--green); font-weight:600;">${r.passed} passed</span>
+                &nbsp;/&nbsp;
+                <span style="color:var(--red);">${r.failed} failed</span>
+            </td>
+            <td>
+                <a href="/api/reports/${r.folder}/json" target="_blank" class="action-btn view">View JSON</a>
+                <a href="/api/reports/${r.folder}/txt" class="action-btn dl">⬇ Test Cases</a>
+            </td>
+        </tr>
+    `).join("");
+}
+
+loadHistory();
+</script>
 </body>
 </html>

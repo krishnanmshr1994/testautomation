@@ -13,10 +13,10 @@ class TestIntent(BaseModel):
 class TestPlan(BaseModel):
     intents: List[TestIntent]
 
-async def analyze_for_required_context(page: Page) -> str | None:
+async def analyze_for_required_context(page: Page) -> dict | None:
     """
-    Analyzes the DOM to determine if user context/credentials are required for effective testing.
-    Returns a prompt string to ask the user, or None if no context is needed.
+    Analyzes the DOM to determine if user context is required for effective testing.
+    Returns a dict with {prompt_message, field_label, placeholder} or None if no context needed.
     """
     await stream_log("\n--- Analyzing Page for Required Context ---")
     
@@ -37,22 +37,38 @@ async def analyze_for_required_context(page: Page) -> str | None:
     }""")
 
     prompt = f"""
-You are an AI analyzing a webpage to determine if user input is necessary before automated testing begins.
+You are an AI analyzing a webpage to determine if specific user input is necessary before automated testing begins.
 
 Page Elements:
 {json.dumps(dom_summary, indent=2)}
 
-Does this page require specific user credentials (like a login form) or highly specific user selections to be properly tested?
-If no, return {{"needs_input": false, "prompt_message": null}}.
-If yes, return {{"needs_input": true, "prompt_message": "..."}} where prompt_message is a clear, concise question asking the user for the required information (e.g. "We detected a login form. Please provide the username and password to use for testing, or press Enter to skip and use random data:").
+Does this page require specific user input (like login credentials, payment info, OTP, address, etc.) to be properly tested?
 
-Respond ONLY with a JSON object in this exact format.
+If NO user input is needed, return:
+{{"needs_input": false, "prompt_message": null, "field_label": null, "placeholder": null}}
+
+If YES, return:
+{{
+  "needs_input": true,
+  "prompt_message": "<A clear sentence explaining what was detected and why input is needed>",
+  "field_label": "<Short label describing exactly what is needed, e.g. 'Login Credentials', 'Credit Card Details', 'Shipping Address', 'OTP / Verification Code'>",
+  "placeholder": "<Example of what to type, e.g. 'username: admin, password: secret' or 'Card: 4111111111111111, CVV: 123, Exp: 12/26'>"
+}}
+
+Respond ONLY with a valid JSON object.
 """
+    import re
     response_text = await ask_llm(prompt)
     try:
-        data = json.loads(response_text.strip("```json\n").strip("```").strip())
-        if data.get("needs_input") and data.get("prompt_message"):
-            return data["prompt_message"]
+        match = re.search(r'\{.*\}', response_text, re.DOTALL)
+        cleaned = match.group(0) if match else response_text
+        data = json.loads(cleaned)
+        if data.get("needs_input"):
+            return {
+                "prompt_message": data.get("prompt_message", ""),
+                "field_label": data.get("field_label", "Required Input"),
+                "placeholder": data.get("placeholder", "")
+            }
     except Exception as e:
         await stream_log(f"[Warning] Failed to parse context analysis response: {e}")
     
@@ -98,11 +114,26 @@ Include:
 1. Happy path tests (valid inputs)
 2. Negative tests (invalid/empty inputs)
 3. Security probes: inject <script>alert(1)</script> into text fields, and ' OR 1=1-- into form fields
+
 """
+
     if extra_context:
         prompt += f"""
-IMPORTANT USER CONTEXT/CREDENTIALS TO USE:
+IMPORTANT — The user has provided the following context/credentials to use in tests:
 {extra_context}
+Use this information for the happy-path tests.
+"""
+    else:
+        prompt += """
+IMPORTANT — No credentials or context were provided by the user.
+You MUST still generate realistic, concrete test cases using sensible default values appropriate to the detected form type. Examples:
+- Login forms: use username "testuser" and password "TestPass@123"
+- Search fields: use query "test product"  
+- Credit card fields: use card "4111111111111111", CVV "123", Expiry "12/28"
+- Email fields: use "tester@example.com"
+- Address fields: use "123 Test Street, New York, NY 10001"
+- Phone fields: use "+1-555-000-1234"
+Choose defaults that make sense for the detected context.
 """
 
     prompt += """
