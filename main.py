@@ -15,7 +15,7 @@ NEEDS_INPUT_PREFIX = "NEEDS_INPUT:"
 
 
 async def crawl_internal_links(base_url: str, page, max_pages: int) -> list:
-    if max_pages <= 1:
+    if max_pages == 1:
         return [base_url]
     await stream_log(f"[Crawler] Spidering {base_url} for internal links...")
     links = await page.evaluate("""() => {
@@ -27,7 +27,7 @@ async def crawl_internal_links(base_url: str, page, max_pages: int) -> list:
     base_domain = urlparse(base_url).netloc
     unique_links = {base_url}
     for link in links:
-        if len(unique_links) >= max_pages: break
+        if max_pages > 0 and len(unique_links) >= max_pages: break
         if urlparse(link).netloc == base_domain:
             unique_links.add(link)
     urls_to_test = list(unique_links)

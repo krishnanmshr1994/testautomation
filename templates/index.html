@@ -325,13 +325,12 @@
     <h1>Autonomous QA & Security Agent</h1>
     <p class="subtitle">Enter a target website URL and the AI will automatically inspect the page, plan test cases, and perform a full security audit — all in real-time.</p>
 
-    <label class="form-label text-gray-300">Target URL</label>
-    <div class="flex space-x-4">
-        <input type="url" id="urlInput" class="form-input flex-1" placeholder="https://example.com" required>
-        <div class="flex items-center space-x-2 bg-[#252525] px-3 py-2 rounded-lg border border-[#333]">
-            <label class="text-sm text-gray-400 whitespace-nowrap">Crawl Pages:</label>
-            <input type="number" id="max_pages" class="bg-transparent text-white w-12 text-center focus:outline-none" value="1" min="1" max="5">
-        </div>
+    <label for="urlInput">Target Website URL</label>
+    <div style="display: flex; gap: 12px; margin-bottom: 20px;">
+        <input type="url" id="urlInput" placeholder="https://example.com" style="flex: 1; margin-bottom: 0;" required>
+        <label class="toggle-label" style="margin-bottom: 0; display: flex; align-items: center; padding: 0 16px; background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; height: 46px;">
+            <input type="checkbox" id="crawlAll" checked style="margin-right: 8px;"> Deep Crawl Domain
+        </label>
     </div>
 
     <label for="customTestsInput">Custom Test Cases (Optional)</label>
@@ -433,7 +432,8 @@ async function handleStart() {
     const runAudit = document.getElementById("runAudit").checked;
     const runFunc = document.getElementById("runFunc").checked;
     const runProbes = document.getElementById('runProbes').checked;
-    const maxPages = parseInt(document.getElementById('max_pages').value) || 1;
+    const crawlAll = document.getElementById('crawlAll').checked;
+    const maxPages = crawlAll ? 0 : 1; // 0 means unlimited
 
     if (!url) return alert('Please enter a URL');
 
