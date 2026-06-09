@@ -31,7 +31,7 @@ async def run_automation(target: str, is_html: bool = False):
         results = await execute_plan(page, plan)
 
         # 4. Report
-        generate_report(results, audit_result)
+        generate_report(results, audit_result, plan=plan)
 
     finally:
         await close_browser()
