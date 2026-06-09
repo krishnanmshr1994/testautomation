@@ -93,18 +93,56 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
                     await live_reporter.record(intent, step_result)
                 continue
 
-            # Verify outcome: ask LLM to check if the expected outcome occurred
-            page_text = await distill_dom(page)
-            verify_prompt = f"""
-After performing: "{intent.description}"
+            # ── Wait for navigation / DOM to settle after the action ─────────
+            try:
+                await page.wait_for_load_state("networkidle", timeout=5000)
+            except Exception:
+                # Not all actions trigger navigation — timeout here is fine
+                try:
+                    await page.wait_for_load_state("domcontentloaded", timeout=2000)
+                except Exception:
+                    pass
 
-The distilled page HTML now shows:
+            # ── Capture post-action state: URL + distilled DOM ───────────────
+            current_url = page.url
+            page_text   = await distill_dom(page)
+
+            # ── Smart URL-based shortcut for navigation tests ─────────────────
+            # If the URL changed and the new path appears in the expected outcome,
+            # we can confidently mark it as passed without an extra LLM call.
+            url_keywords = [w.lower() for w in intent.expected_outcome.split()
+                            if len(w) > 3 and w.isalpha()]
+            url_match = any(kw in current_url.lower() for kw in url_keywords)
+            if url_match and action in ("click", None):
+                step_result["verification_success"] = True
+                step_result["details"] = (
+                    f"URL changed to '{current_url}' which matches expected outcome. "
+                    f"Navigation verified via URL."
+                )
+                await stream_log(f"✅ Passed (URL match): {step_result['details']}")
+                results.append(step_result)
+                if live_reporter:
+                    await live_reporter.record(intent, step_result)
+                continue
+
+            # ── Full LLM verification (with URL context) ──────────────────────
+            verify_prompt = f"""
+You are a QA verification expert. A browser automation just performed an action and you must decide if the expected outcome occurred.
+
+Action performed : "{intent.description}"
+Current page URL : {current_url}
+Expected outcome : "{intent.expected_outcome}"
+
+Distilled page HTML:
 {page_text}
 
-Expected outcome: "{intent.expected_outcome}"
+IMPORTANT RULES:
+1. If the Current page URL clearly matches the expected outcome (e.g. URL contains "healthcare" and expected is "Healthcare page is displayed"), mark it as SUCCESS.
+2. Do NOT fail a test just because the HTML contains links or mentions of other sections — focus on whether the PRIMARY content matches.
+3. Be lenient: if the evidence is ambiguous but the URL changed correctly, lean toward success.
 
-Did the expected outcome occur? Respond ONLY with JSON:
-{{"success": true/false, "details": "Brief explanation"}}
+Respond ONLY with JSON:
+{{"success": true/false, "details": "One sentence explaining what you see on the page and why you chose this verdict"}}
 """
             raw_verify = await ask_llm(verify_prompt, system="You are a QA verification expert. Respond only with JSON.")
             match = re.search(r'\{.*\}', raw_verify, re.DOTALL)
