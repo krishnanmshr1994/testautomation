@@ -20,9 +20,8 @@ async def run_automation(target: str, is_html: bool = False):
     results = []
 
     try:
-        # 1. Security: Static Audit
-        raw_html = await page.content()
-        audit_result = await perform_static_audit(page, raw_html)
+        # 1. Plan: Static Security Audit
+        audit_result = await perform_static_audit(page)
 
         # 1.5 Context Analysis: Check if the AI needs credentials to proceed
         extra_context = ""

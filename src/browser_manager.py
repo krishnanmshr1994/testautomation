@@ -14,6 +14,35 @@ def get_ai_client() -> AsyncOpenAI:
         api_key=os.getenv("NVIDIA_API_KEY"),
     )
 
+async def distill_dom(page) -> str:
+    """
+    Executes a JavaScript minifier in the browser to strip out non-semantic
+    elements (scripts, styles, svgs, classes) and returns a clean HTML skeleton.
+    """
+    js_code = """() => {
+        const clone = document.body.cloneNode(true);
+        // Remove junk tags
+        const junk = clone.querySelectorAll('script, style, svg, noscript, iframe, path, meta, link');
+        junk.forEach(el => el.remove());
+        
+        // Remove visual attributes to save tokens
+        const allElements = clone.querySelectorAll('*');
+        allElements.forEach(el => {
+            el.removeAttribute('class');
+            el.removeAttribute('style');
+            el.removeAttribute('data-testid');
+            el.removeAttribute('width');
+            el.removeAttribute('height');
+        });
+        
+        return clone.innerHTML;
+    }"""
+    distilled_html = await page.evaluate(js_code)
+    # Strip excessive newlines and whitespace
+    import re
+    clean_html = re.sub(r'\\s+', ' ', distilled_html).strip()
+    return clean_html
+
 async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.") -> str:
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()

@@ -1,7 +1,7 @@
 import json
 from playwright.async_api import Page
 from src.planner import TestPlan
-from src.browser_manager import ask_llm
+from src.browser_manager import ask_llm, distill_dom
 
 async def execute_plan(page: Page, plan: TestPlan) -> list:
     """
@@ -23,9 +23,9 @@ async def execute_plan(page: Page, plan: TestPlan) -> list:
 
         try:
             # Ask LLM to identify the CSS selector for the intended action
-            dom_snapshot = await page.evaluate("() => document.body.innerHTML.substring(0, 3000)")
+            dom_snapshot = await distill_dom(page)
             selector_prompt = f"""
-Given this page HTML snippet:
+Given this distilled HTML snippet:
 {dom_snapshot}
 
 For the following action: "{intent.description}"
@@ -66,11 +66,11 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
             step_result["action_success"] = True
 
             # Verify outcome: ask LLM to check if the expected outcome occurred
-            page_text = await page.evaluate("() => document.body.innerText.substring(0, 2000)")
+            page_text = await distill_dom(page)
             verify_prompt = f"""
 After performing: "{intent.description}"
 
-The page now shows this text:
+The distilled page HTML now shows:
 {page_text}
 
 Expected outcome: "{intent.expected_outcome}"

@@ -1,7 +1,7 @@
 from playwright.async_api import Page
 from pydantic import BaseModel
 from typing import List
-from src.browser_manager import ask_llm
+from src.browser_manager import ask_llm, distill_dom
 
 class Vulnerability(BaseModel):
     title: str
@@ -11,25 +11,26 @@ class Vulnerability(BaseModel):
 class StaticAuditResult(BaseModel):
     vulnerabilities: List[Vulnerability]
 
-async def perform_static_audit(page: Page, raw_html: str) -> StaticAuditResult:
+async def perform_static_audit(page: Page) -> StaticAuditResult:
     """
-    Sends the raw HTML to the LLM and asks it to identify security vulnerabilities.
+    Sends the distilled HTML to the LLM and asks it to identify security vulnerabilities.
     """
     print("\n--- Performing Static HTML Security Audit ---")
+    
+    clean_html = await distill_dom(page)
 
     prompt = f"""
-You are a web application security expert. Analyze the following raw HTML for security vulnerabilities.
+You are a web application security expert. Analyze the following distilled HTML for security vulnerabilities.
 
 Look for:
 1. Exposed API keys, tokens, or secrets in the source
 2. Forms missing CSRF tokens
 3. Insecure endpoints (http:// instead of https://)
-4. Inline JavaScript with dangerous patterns (eval, document.write, innerHTML)
-5. Missing Content Security Policy hints in meta tags
-6. Password fields that are not of type="password"
+4. Missing Content Security Policy hints in meta tags
+5. Password fields that are not of type="password"
 
 HTML to analyze:
-{raw_html[:5000]}
+{clean_html}
 
 Respond ONLY with a JSON object in this exact format:
 {{
