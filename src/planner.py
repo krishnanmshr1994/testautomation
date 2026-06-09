@@ -3,6 +3,7 @@ from playwright.async_api import Page
 from pydantic import BaseModel, Field
 from typing import List
 from src.browser_manager import ask_llm
+from src.logger import stream_log
 
 class TestIntent(BaseModel):
     description: str = Field(..., description="Natural language action to perform")
@@ -17,7 +18,7 @@ async def analyze_for_required_context(page: Page) -> str | None:
     Analyzes the DOM to determine if user context/credentials are required for effective testing.
     Returns a prompt string to ask the user, or None if no context is needed.
     """
-    print("\n--- Analyzing Page for Required Context ---")
+    await stream_log("\n--- Analyzing Page for Required Context ---")
     
     # Extract key DOM elements
     dom_summary = await page.evaluate("""() => {
@@ -53,7 +54,7 @@ Respond ONLY with a JSON object in this exact format.
         if data.get("needs_input") and data.get("prompt_message"):
             return data["prompt_message"]
     except Exception as e:
-        print(f"[Warning] Failed to parse context analysis response: {e}")
+        await stream_log(f"[Warning] Failed to parse context analysis response: {e}")
     
     return None
 
@@ -61,7 +62,7 @@ async def generate_test_plan(page: Page, extra_context: str = "") -> TestPlan:
     """
     Extracts the DOM elements from the page and asks the LLM to generate a test plan.
     """
-    print("\n--- Discovering Page Elements ---")
+    await stream_log("\n--- Discovering Page Elements ---")
 
     # Extract key DOM elements using Playwright
     dom_summary = await page.evaluate("""() => {
@@ -80,7 +81,7 @@ async def generate_test_plan(page: Page, extra_context: str = "") -> TestPlan:
         return elements;
     }""")
 
-    print(f"Found {len(dom_summary)} interactive elements. Generating test plan...")
+    await stream_log(f"Found {len(dom_summary)} interactive elements. Generating test plan...")
 
     prompt = f"""
 You are a QA and Security testing expert. Based on the following page elements extracted from a website, generate a comprehensive test plan.

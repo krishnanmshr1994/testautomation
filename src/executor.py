@@ -2,6 +2,7 @@ import json
 from playwright.async_api import Page
 from src.planner import TestPlan
 from src.browser_manager import ask_llm, distill_dom
+from src.logger import stream_log
 
 async def execute_plan(page: Page, plan: TestPlan) -> list:
     """
@@ -11,7 +12,7 @@ async def execute_plan(page: Page, plan: TestPlan) -> list:
     results = []
 
     for idx, intent in enumerate(plan.intents):
-        print(f"\n--- Step {idx + 1}/{len(plan.intents)}: {intent.description} ---")
+        await stream_log(f"\n--- Step {idx + 1}/{len(plan.intents)}: {intent.description} ---")
 
         step_result = {
             "intent": intent.model_dump(),
@@ -85,10 +86,10 @@ Did the expected outcome occur? Respond ONLY with JSON:
             step_result["details"] = verify_data.get("details", "")
 
             status = "✅ Passed" if step_result["verification_success"] else "❌ Failed"
-            print(f"{status}: {step_result['details']}")
+            await stream_log(f"{status}: {step_result['details']}")
 
         except Exception as e:
-            print(f"Error: {str(e)}")
+            await stream_log(f"Error: {str(e)}")
             step_result["error"] = str(e)
 
         results.append(step_result)

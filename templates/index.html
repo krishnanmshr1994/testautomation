@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Test Automation Agent</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --accent-glow: 0 0 20px rgba(56, 189, 248, 0.5);
+            --primary: #38bdf8;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(56, 189, 248, 0.1), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(168, 85, 247, 0.1), transparent 25%);
+        }
+
+        .glass-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 40px;
+            width: 100%;
+            max-width: 900px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-weight: 800;
+            font-size: 2.5rem;
+            margin-top: 0;
+            background: linear-gradient(to right, #38bdf8, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .input-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+
+        input[type="text"] {
+            background: rgba(15, 23, 42, 0.8);
+            border: 1px solid var(--border-color);
+            padding: 16px;
+            border-radius: 12px;
+            color: white;
+            font-size: 1rem;
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        input[type="text"]:focus {
+            border-color: var(--primary);
+            box-shadow: var(--accent-glow);
+        }
+
+        button {
+            background: linear-gradient(135deg, #38bdf8, #818cf8);
+            border: none;
+            padding: 16px 32px;
+            border-radius: 12px;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(56, 189, 248, 0.3);
+            width: 100%;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--accent-glow);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Terminal Logs */
+        .terminal {
+            background: #020617;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            padding: 20px;
+            font-family: monospace;
+            font-size: 0.9rem;
+            height: 300px;
+            overflow-y: auto;
+            color: #10b981;
+            margin-top: 20px;
+            display: none;
+            scroll-behavior: smooth;
+        }
+
+        .terminal span.error { color: #ef4444; }
+        .terminal span.info { color: #3b82f6; }
+        .terminal span.warn { color: #f59e0b; }
+
+        /* Progress Bar */
+        .progress-container {
+            width: 100%;
+            height: 8px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+            margin-top: 30px;
+            overflow: hidden;
+            display: none;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #38bdf8, #a855f7);
+            transition: width 0.5s ease;
+            box-shadow: var(--accent-glow);
+        }
+
+        /* Report History Table */
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .history-table th, .history-table td {
+            text-align: left;
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .history-table th {
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+        
+        .history-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .action-btn {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 8px 16px;
+            border-radius: 8px;
+            color: white;
+            text-decoration: none;
+            font-size: 0.85rem;
+            margin-right: 8px;
+            display: inline-block;
+            transition: 0.2s;
+        }
+
+        .action-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        .action-btn.download {
+            background: rgba(56, 189, 248, 0.2);
+            color: #38bdf8;
+        }
+        .action-btn.download:hover {
+            background: rgba(56, 189, 248, 0.3);
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- Automation Launcher -->
+    <div class="glass-card">
+        <h1>Autonomous QA & Security Agent</h1>
+        <p style="color: var(--text-muted); margin-bottom: 30px;">
+            Enter a target website to automatically discover elements, generate intelligent test plans, and perform a complete security audit.
+        </p>
+
+        <div class="input-group">
+            <label>Target Website URL</label>
+            <input type="text" id="urlInput" placeholder="https://example.com" value="https://example.com">
+        </div>
+
+        <div class="input-group">
+            <label>Optional Context / Credentials (e.g., "Use user: admin, pass: 1234")</label>
+            <input type="text" id="contextInput" placeholder="Leave blank to use random placeholder data">
+        </div>
+
+        <button id="startBtn" onclick="startTest()">Commence Automation</button>
+
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-bar" id="progressBar"></div>
+        </div>
+
+        <div class="terminal" id="terminal"></div>
+    </div>
+
+    <!-- Report History -->
+    <div class="glass-card">
+        <h2 style="margin-top:0;">Execution History</h2>
+        <table class="history-table" id="historyTable">
+            <thead>
+                <tr>
+                    <th>Date & Time</th>
+                    <th>Target Website</th>
+                    <th>Security Vulns</th>
+                    <th>Passed/Failed</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Populated via JS -->
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // Setup SSE listener for real-time logs
+        const evtSource = new EventSource("/api/stream-logs");
+        const terminal = document.getElementById("terminal");
+        const progressBar = document.getElementById("progressBar");
+        const progressContainer = document.getElementById("progressContainer");
+        const startBtn = document.getElementById("startBtn");
+
+        let currentProgress = 0;
+
+        evtSource.onmessage = function(event) {
+            if(!startBtn.disabled) return; // Only process logs if running
+
+            const msg = event.data;
+            terminal.style.display = "block";
+            
+            // Apply some basic syntax highlighting
+            let className = "";
+            if(msg.includes("[Error]") || msg.includes("Failed") || msg.includes("Critical")) className = "error";
+            if(msg.includes("---")) className = "info";
+
+            terminal.innerHTML += `<div class="${className}">> ${msg}</div>`;
+            terminal.scrollTop = terminal.scrollHeight;
+
+            // Fake progress tracking based on log messages
+            if(msg.includes("Starting automation")) updateProgress(10);
+            if(msg.includes("Performing Static HTML Security Audit")) updateProgress(30);
+            if(msg.includes("Discovering Page Elements")) updateProgress(50);
+            if(msg.includes("Generating test plan")) updateProgress(70);
+            if(msg.includes("Step 1/")) updateProgress(85);
+            if(msg.includes("--- COMPLETE ---")) {
+                updateProgress(100);
+                startBtn.disabled = false;
+                startBtn.innerText = "Commence Automation";
+                setTimeout(loadHistory, 2000); // Reload history after completion
+            }
+        };
+
+        function updateProgress(percent) {
+            currentProgress = Math.max(currentProgress, percent);
+            progressContainer.style.display = "block";
+            progressBar.style.width = currentProgress + "%";
+        }
+
+        async function startTest() {
+            const url = document.getElementById("urlInput").value;
+            const context = document.getElementById("contextInput").value;
+            
+            if(!url) return alert("Please enter a URL");
+
+            startBtn.disabled = true;
+            startBtn.innerText = "Automation in Progress...";
+            terminal.innerHTML = "";
+            currentProgress = 0;
+            updateProgress(5);
+
+            try {
+                await fetch("/api/start-test", {
+                    method: "POST",
+                    headers: {"Content-Type": "application/json"},
+                    body: JSON.stringify({url, context})
+                });
+            } catch (e) {
+                alert("Failed to start test: " + e);
+                startBtn.disabled = false;
+                startBtn.innerText = "Commence Automation";
+            }
+        }
+
+        async function loadHistory() {
+            const res = await fetch("/api/reports");
+            const reports = await res.json();
+            const tbody = document.querySelector("#historyTable tbody");
+            tbody.innerHTML = "";
+
+            reports.forEach(r => {
+                const tr = document.createElement("tr");
+                tr.innerHTML = `
+                    <td>${r.date}</td>
+                    <td style="font-weight:600; color:var(--primary);">${r.url}</td>
+                    <td>${r.vulnerabilities > 0 ? `<span style="color:#ef4444; font-weight:bold;">${r.vulnerabilities} Found</span>` : '<span style="color:#10b981;">0</span>'}</td>
+                    <td><span style="color:#10b981;">${r.passed}</span> / <span style="color:#ef4444;">${r.failed}</span></td>
+                    <td>
+                        <a href="/api/reports/${r.folder}/json" target="_blank" class="action-btn">View JSON</a>
+                        <a href="/api/reports/${r.folder}/txt" class="action-btn download">Download Test Cases</a>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // Initial load
+        loadHistory();
+    </script>
+</body>
+</html>

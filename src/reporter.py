@@ -1,18 +1,23 @@
 import json
 import os
 from datetime import datetime
+import re
 from src.planner import TestPlan
+from src.logger import stream_log
 
-
-def generate_report(results: list, audit_result, plan: TestPlan = None, output_dir: str = "reports"):
+async def generate_report(target_url: str, results: list, audit_result, plan: TestPlan = None, base_output_dir: str = "reports"):
     """
     Generates:
     1. test_cases_report.txt  - Each test case with its PASS/FAIL result
     2. report.json            - Full structured JSON output
-    3. report.md              - Human-readable Markdown summary
     """
+    # Create dynamic folder name: YYYYMMDD_HHMMSS_domain
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    clean_domain = re.sub(r'[^a-zA-Z0-9]', '_', target_url.replace('https://', '').replace('http://', ''))[:30]
+    output_dir = os.path.join(base_output_dir, f"{timestamp}_{clean_domain}")
     os.makedirs(output_dir, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    display_timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     # ─────────────────────────────────────────────────────────────
     # 1. TEST CASES REPORT (main deliverable the user asked for)
@@ -20,8 +25,8 @@ def generate_report(results: list, audit_result, plan: TestPlan = None, output_d
     tc_path = os.path.join(output_dir, "test_cases_report.txt")
     with open(tc_path, "w", encoding="utf-8") as f:
         f.write("=" * 70 + "\n")
-        f.write("  QA & SECURITY TEST CASES REPORT\n")
-        f.write(f"  Generated: {timestamp}\n")
+        f.write(f"  QA & SECURITY TEST CASES REPORT FOR: {target_url}\n")
+        f.write(f"  Generated: {display_timestamp}\n")
         f.write("=" * 70 + "\n\n")
 
         # --- SECTION 1: Static Security Audit ---
@@ -89,13 +94,15 @@ def generate_report(results: list, audit_result, plan: TestPlan = None, output_d
         f.write(f"  Static Vulns Found : {vuln_count}\n")
         f.write("=" * 70 + "\n")
 
-    print(f"\n[Report] Test Cases Report : {tc_path}")
+    await stream_log(f"\n[Report] Test Cases Report : {tc_path}")
 
     # ─────────────────────────────────────────────────────────────
     # 2. JSON Report (raw data for programmatic use)
     # ─────────────────────────────────────────────────────────────
     report_data = {
-        "generated_at": timestamp,
+        "generated_at": display_timestamp,
+        "target_url": target_url,
+        "folder_name": os.path.basename(output_dir),
         "static_audit": audit_result.model_dump() if audit_result else None,
         "execution_results": results,
         "summary": {
@@ -109,5 +116,5 @@ def generate_report(results: list, audit_result, plan: TestPlan = None, output_d
     with open(json_path, "w", encoding="utf-8") as f:
         json.dump(report_data, f, indent=4)
 
-    print(f"[Report] Full JSON Report  : {json_path}")
+    await stream_log(f"[Report] Full JSON Report  : {json_path}")
     return report_data

@@ -2,6 +2,7 @@ from playwright.async_api import Page
 from pydantic import BaseModel
 from typing import List
 from src.browser_manager import ask_llm, distill_dom
+from src.logger import stream_log
 
 class Vulnerability(BaseModel):
     title: str
@@ -15,7 +16,7 @@ async def perform_static_audit(page: Page) -> StaticAuditResult:
     """
     Sends the distilled HTML to the LLM and asks it to identify security vulnerabilities.
     """
-    print("\n--- Performing Static HTML Security Audit ---")
+    await stream_log("\n--- Performing Static HTML Security Audit ---")
     
     clean_html = await distill_dom(page)
 
@@ -49,11 +50,11 @@ If no vulnerabilities are found, return: {{"vulnerabilities": []}}
         data = json.loads(cleaned)
         result = StaticAuditResult(**data)
     except Exception as e:
-        print(f"Warning: Could not parse audit result. Error: {e}")
+        await stream_log(f"Warning: Could not parse audit result. Error: {e}")
         result = StaticAuditResult(vulnerabilities=[])
 
-    print(f"Audit complete. Found {len(result.vulnerabilities)} vulnerability(ies).")
+    await stream_log(f"Audit complete. Found {len(result.vulnerabilities)} vulnerability(ies).")
     for v in result.vulnerabilities:
-        print(f"  [{v.severity.upper()}] {v.title}: {v.description}")
+        await stream_log(f"  [{v.severity.upper()}] {v.title}: {v.description}")
 
     return result
