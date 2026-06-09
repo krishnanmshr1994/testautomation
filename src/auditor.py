@@ -44,9 +44,11 @@ Respond ONLY with a JSON object in this exact format:
 If no vulnerabilities are found, return: {{"vulnerabilities": []}}
 """
     import json
+    import re
     response = await ask_llm(prompt, system="You are a web security expert. Respond only with JSON.")
     try:
-        cleaned = response.strip().strip("```json").strip("```").strip()
+        match = re.search(r'\{.*\}', response, re.DOTALL)
+        cleaned = match.group(0) if match else response
         data = json.loads(cleaned)
         result = StaticAuditResult(**data)
     except Exception as e:

@@ -37,7 +37,9 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
 If you cannot identify the element, respond with: {{"selector": null, "action": null, "value": null}}
 """
             raw = await ask_llm(selector_prompt, system="You are a Playwright automation expert. Respond only with JSON.")
-            cleaned = raw.strip().strip("```json").strip("```").strip()
+            import re
+            match = re.search(r'\{.*\}', raw, re.DOTALL)
+            cleaned = match.group(0) if match else raw
             action_data = json.loads(cleaned)
 
             if not action_data.get("selector"):
@@ -80,7 +82,8 @@ Did the expected outcome occur? Respond ONLY with JSON:
 {{"success": true/false, "details": "Brief explanation"}}
 """
             raw_verify = await ask_llm(verify_prompt, system="You are a QA verification expert. Respond only with JSON.")
-            cleaned_verify = raw_verify.strip().strip("```json").strip("```").strip()
+            match = re.search(r'\{.*\}', raw_verify, re.DOTALL)
+            cleaned_verify = match.group(0) if match else raw_verify
             verify_data = json.loads(cleaned_verify)
             step_result["verification_success"] = verify_data.get("success", False)
             step_result["details"] = verify_data.get("details", "")

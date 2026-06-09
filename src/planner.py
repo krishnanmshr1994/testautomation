@@ -117,16 +117,17 @@ Respond ONLY with a JSON object in this exact format:
     response = await ask_llm(prompt)
 
     # Parse the JSON from the LLM response
+    import re
     try:
-        # Strip markdown code fences if present
-        cleaned = response.strip().strip("```json").strip("```").strip()
+        match = re.search(r'\{.*\}', response, re.DOTALL)
+        cleaned = match.group(0) if match else response
         data = json.loads(cleaned)
         plan = TestPlan(**data)
     except Exception as e:
-        print(f"Warning: Could not parse test plan JSON, using fallback. Error: {e}")
+        await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}\nRaw Response: {response[:200]}")
         plan = TestPlan(intents=[
             TestIntent(description="Observe the page", expected_outcome="Page loads successfully", is_security_probe=False)
         ])
 
-    print(f"Generated {len(plan.intents)} test intents.")
+    await stream_log(f"Generated {len(plan.intents)} test intents.")
     return plan
