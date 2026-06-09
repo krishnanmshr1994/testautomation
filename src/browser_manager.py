@@ -70,7 +70,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
             temperature=temperature,
             top_p=0.7,
             max_tokens=4096,
-            timeout=45.0
+            timeout=75.0
         )
         return response.choices[0].message.content
     except Exception as e:
@@ -94,9 +94,11 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
         except Exception as api_err:
             last_error = f"API Error: {str(api_err)}"
             from src.logger import stream_log
-            await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed due to API Error. Retrying in 2s...")
+            import random
+            sleep_time = (2 ** attempt) + random.uniform(0, 2)
+            await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed due to API Error. Retrying in {sleep_time:.1f}s...")
             import asyncio
-            await asyncio.sleep(2)
+            await asyncio.sleep(sleep_time)
             continue # Retry without modifying the prompt for network errors
 
         try:

@@ -133,7 +133,7 @@ async def run_automation(target: str,
     await discovery_page.context.close()
 
     # Parallel Execution Phase
-    semaphore = asyncio.Semaphore(10) # Significantly increase concurrency to speed up Deep Crawl
+    semaphore = asyncio.Semaphore(4) # Throttle back to 4 to avoid NVIDIA API Rate Limits
     tasks = []
     
     for url in urls_to_test:
