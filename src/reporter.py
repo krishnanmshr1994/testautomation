@@ -16,18 +16,27 @@ from src.logger import stream_log
 #   report_data = await reporter.finalize()            ← writes summary + JSON
 # ─────────────────────────────────────────────────────────────────────────────
 class LiveReporter:
-    def __init__(self, target_url: str, base_output_dir: str = "reports"):
+    def __init__(self, target_url: str, output_dir: str = None, base_output_dir: str = "reports"):
         nyc_tz = ZoneInfo("America/New_York")
         timestamp = datetime.now(nyc_tz).strftime("%Y%m%d_%H%M%S")
-        clean_domain = re.sub(r'[^a-zA-Z0-9]', '_',
-                              target_url.replace('https://', '').replace('http://', ''))[:30]
-        self.output_dir = os.path.join(base_output_dir, f"{timestamp}_{clean_domain}")
+        
+        # A unique slug for the specific page being tested
+        page_slug = re.sub(r'[^a-zA-Z0-9]', '_', target_url.replace('https://', '').replace('http://', ''))[:30]
+        
+        if output_dir:
+            self.output_dir = output_dir
+        else:
+            self.output_dir = os.path.join(base_output_dir, f"{timestamp}_{page_slug}")
+            
         os.makedirs(self.output_dir, exist_ok=True)
 
         self.target_url       = target_url
+        self.page_slug        = page_slug
         self.display_ts       = datetime.now(nyc_tz).strftime("%Y-%m-%d %H:%M:%S")
-        self.tc_path          = os.path.join(self.output_dir, "test_cases_report.txt")
-        self.json_path        = os.path.join(self.output_dir, "report.json")
+        
+        # Use page_slug so parallel files don't overwrite each other
+        self.tc_path          = os.path.join(self.output_dir, f"test_cases_report_{page_slug}.txt")
+        self.json_path        = os.path.join(self.output_dir, f"report_{page_slug}.json")
 
         self.audit_result     = None
         self.results: list    = []
@@ -66,8 +75,8 @@ class LiveReporter:
             f.write("  (Happy path + negative/boundary tests — results written live)\n")
             f.write("-" * 70 + "\n")
 
-        # ── Write standalone test_cases_planned.txt RIGHT NOW (before execution) ──
-        planned_path = os.path.join(self.output_dir, "test_cases_planned.txt")
+        # ── Write standalone planned test cases RIGHT NOW (before execution) ──
+        planned_path = os.path.join(self.output_dir, f"test_cases_planned_{self.page_slug}.txt")
         func   = [i for i in self.intents if not i.is_security_probe]
         probes = [i for i in self.intents if i.is_security_probe]
 

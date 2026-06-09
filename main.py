@@ -40,10 +40,10 @@ async def run_single_page(url: str,
                           extra_context: str,
                           custom_tests_raw: str,
                           run_audit: bool,
-                          run_functional: bool,
                           run_probes: bool,
                           context_queue: asyncio.Queue,
-                          semaphore: asyncio.Semaphore) -> dict:
+                          semaphore: asyncio.Semaphore,
+                          run_dir: str) -> dict:
     async with semaphore:
         await stream_log(f"\n[{url}] Starting automation")
         page = await init_browser(url, is_html)
@@ -68,7 +68,7 @@ async def run_single_page(url: str,
             test_plan = await generate_test_plan(page, extra_context, custom_tests_raw, run_functional, run_probes)
 
             # ── 4. Initialize Live Reporter ───────────────────────────────────────
-            live_reporter = LiveReporter(url)
+            live_reporter = LiveReporter(url, output_dir=run_dir)
             await live_reporter.initialize(audit_result, test_plan)
 
             # ── 5. Execute ────────────────────────────────────────────────────────
@@ -93,6 +93,18 @@ async def run_automation(target: str,
                          run_probes: bool = True,
                          max_pages: int = 1,
                          context_queue: asyncio.Queue = None) -> dict:
+    # Setup Global Run Directory
+    import re
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    import os
+    import json
+    
+    nyc_tz = ZoneInfo("America/New_York")
+    timestamp = datetime.now(nyc_tz).strftime("%Y%m%d_%H%M%S")
+    clean_domain = re.sub(r'[^a-zA-Z0-9]', '_', target.replace('https://', '').replace('http://', ''))[:30]
+    run_dir = os.path.join("reports", f"{timestamp}_{clean_domain}")
+    os.makedirs(run_dir, exist_ok=True)
     
     # Discovery Phase
     await stream_log(f"\n--- Initializing Discovery for {target} ---")
@@ -126,13 +138,39 @@ async def run_automation(target: str,
         tasks.append(run_single_page(
             url, is_html, extra_context, custom_tests_raw, 
             run_audit, run_functional, run_probes, 
-            context_queue, semaphore
+            context_queue, semaphore, run_dir
         ))
         
     results = await asyncio.gather(*tasks)
     
+    # ── Aggregate All Sub-Reports into a Single Master Report ────────────────
+    await stream_log(f"\n[Aggregator] Compiling master report from {len(results)} page(s)...")
+    
+    master_report = {
+        "target_url": target,
+        "generated_at": datetime.now(nyc_tz).strftime("%Y-%m-%d %H:%M:%S"),
+        "summary": {
+            "total_actions": sum(r.get("summary", {}).get("total_actions", 0) for r in results if r),
+            "successful_actions": sum(r.get("summary", {}).get("successful_actions", 0) for r in results if r),
+            "failed_actions": sum(r.get("summary", {}).get("failed_actions", 0) for r in results if r),
+            "vulnerabilities_found": sum(r.get("summary", {}).get("vulnerabilities_found", 0) for r in results if r)
+        },
+        "static_audit": { "vulnerabilities": [] },
+        "execution_results": []
+    }
+    
+    for r in results:
+        if not r: continue
+        if r.get("static_audit") and r["static_audit"].get("vulnerabilities"):
+            master_report["static_audit"]["vulnerabilities"].extend(r["static_audit"]["vulnerabilities"])
+        if r.get("execution_results"):
+            master_report["execution_results"].extend(r["execution_results"])
+            
+    with open(os.path.join(run_dir, "report.json"), "w", encoding="utf-8") as f:
+        json.dump(master_report, f, indent=2)
+    
     await close_browser()
-    return {"pages_tested": len(results), "reports": results}
+    return master_report
 
 if __name__ == "__main__":
     print("=" * 50)
