@@ -133,7 +133,7 @@ async def run_automation(target: str,
     await discovery_page.context.close()
 
     # Parallel Execution Phase
-    semaphore = asyncio.Semaphore(4) # Throttle back to 4 to avoid NVIDIA API Rate Limits
+    semaphore = asyncio.Semaphore(2) # Safest concurrency level to guarantee no NVIDIA API timeouts on heavy sites
     tasks = []
     
     for url in urls_to_test:
