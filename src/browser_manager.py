@@ -17,16 +17,21 @@ def get_ai_client() -> AsyncOpenAI:
 async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.") -> str:
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
-    response = await client.chat.completions.create(
-        model=os.getenv("MODEL_NAME", "deepseek-ai/deepseek-v4-pro"),
-        messages=[
-            {"role": "system", "content": system},
-            {"role": "user", "content": prompt}
-        ],
-        temperature=0.3,
-        max_tokens=8192,
-    )
-    return response.choices[0].message.content
+    try:
+        response = await client.chat.completions.create(
+            model=os.getenv("MODEL_NAME", "deepseek-ai/deepseek-v4-pro"),
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3,
+            max_tokens=8192,
+            timeout=30.0
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        print(f"\n[LLM Error] API request failed or timed out: {e}")
+        return "{}"
 
 async def init_browser(url_or_html: str, is_html: bool = False):
     """
