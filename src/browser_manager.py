@@ -64,11 +64,6 @@ async def distill_dom(page) -> str:
     # Strip excessive newlines and whitespace
     import re
     clean_html = re.sub(r'\s+', ' ', distilled_html).strip()
-    
-    # GitHub's free API has a strict 8k token limit (approx 30,000 chars).
-    if os.getenv("GITHUB_TOKEN") and len(clean_html) > 25000:
-        clean_html = clean_html[:25000] + "\n<!-- [DOM TRUNCATED DUE TO 8K TOKEN API LIMIT] -->"
-        
     return clean_html
 
 async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2) -> str:
