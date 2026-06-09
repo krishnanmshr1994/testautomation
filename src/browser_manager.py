@@ -7,8 +7,12 @@ from openai import AsyncOpenAI
 _playwright = None
 _browser: Browser = None
 
-# Shared AI client using NVIDIA endpoint
 def get_ai_client() -> AsyncOpenAI:
+    if os.getenv("GEMINI_API_KEY"):
+        return AsyncOpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=os.getenv("GEMINI_API_KEY"),
+        )
     return AsyncOpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
         api_key=os.getenv("NVIDIA_API_KEY"),
@@ -61,8 +65,9 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
+        default_model = "gemini-2.0-flash" if os.getenv("GEMINI_API_KEY") else "meta/llama-3.3-70b-instruct"
         response = await client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", "meta/llama-3.3-70b-instruct"),
+            model=os.getenv("MODEL_NAME", default_model),
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt}

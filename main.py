@@ -133,7 +133,9 @@ async def run_automation(target: str,
     await discovery_page.context.close()
 
     # Parallel Execution Phase
-    semaphore = asyncio.Semaphore(2) # Safest concurrency level to guarantee no NVIDIA API timeouts on heavy sites
+    # Gemini handles massive load effortlessly. NVIDIA's free endpoint needs throttling.
+    max_concurrency = 10 if os.getenv("GEMINI_API_KEY") else 2
+    semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     
     for url in urls_to_test:
