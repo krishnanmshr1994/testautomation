@@ -76,7 +76,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     except Exception as e:
         from src.logger import stream_log
         await stream_log(f"\n[LLM Error] API request failed or timed out: {e}")
-        return "{}"
+        raise e
 
 async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, pydantic_model=None, max_retries: int = 3):
     """
@@ -89,7 +89,16 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
     last_error = ""
 
     for attempt in range(max_retries):
-        response = await ask_llm(current_prompt, system=system, temperature=temperature)
+        try:
+            response = await ask_llm(current_prompt, system=system, temperature=temperature)
+        except Exception as api_err:
+            last_error = f"API Error: {str(api_err)}"
+            from src.logger import stream_log
+            await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed due to API Error. Retrying in 2s...")
+            import asyncio
+            await asyncio.sleep(2)
+            continue # Retry without modifying the prompt for network errors
+
         try:
             match = re.search(r'\{.*\}', response, re.DOTALL)
             cleaned = match.group(0) if match else response
@@ -100,7 +109,7 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
         except Exception as e:
             last_error = str(e)
             from src.logger import stream_log
-            await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed. Error: {last_error}")
+            await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed. JSON/Pydantic Error: {last_error}")
             current_prompt = prompt + f"\n\n[System Feedback] Your previous response failed to parse as valid JSON. Error: {last_error}\nPlease fix the formatting and try again. Respond ONLY with a valid JSON object."
     
     raise ValueError(f"Failed to generate valid JSON after {max_retries} attempts. Last error: {last_error}")
