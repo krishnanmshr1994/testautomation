@@ -76,7 +76,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     client = get_ai_client()
     try:
         if os.getenv("HF_TOKEN"):
-            default_model = "meta-llama/Llama-3.3-70B-Instruct"
+            default_model = "Qwen/Qwen2.5-72B-Instruct"
         elif os.getenv("GITHUB_TOKEN"):
             default_model = "gpt-4o-mini"
         elif os.getenv("GEMINI_API_KEY"):
