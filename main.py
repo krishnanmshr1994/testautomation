@@ -10,7 +10,7 @@ from src.reporter import generate_report
 # Load environment variables (e.g., NVIDIA_API_KEY)
 load_dotenv()
 
-async def run_automation(target: str, is_html: bool = False):
+async def run_automation(target: str, extra_context: str = "", is_html: bool = False):
     print(f"\nStarting automation for: {'Raw HTML' if is_html else target}")
     print("Launching headless browser...")
 
@@ -25,7 +25,7 @@ async def run_automation(target: str, is_html: bool = False):
         audit_result = await perform_static_audit(page, raw_html)
 
         # 2. Plan: Generate Test Plan
-        plan = await generate_test_plan(page)
+        plan = await generate_test_plan(page, extra_context=extra_context)
 
         # 3. Execute: Run dynamic tests
         results = await execute_plan(page, plan)
@@ -47,5 +47,9 @@ if __name__ == "__main__":
         test_target = "https://example.com"
         print(f"No URL provided, defaulting to {test_target}")
 
+    print("\n[Optional] Provide any specific credentials, scenarios, or instructions for the AI.")
+    print("Example: 'Use username: admin and password: password123' or 'Focus on the checkout flow'")
+    extra_context = input("Context (press Enter to skip): ").strip()
+
     print(f"\nTesting {test_target}...")
-    asyncio.run(run_automation(test_target, is_html=False))
+    asyncio.run(run_automation(test_target, extra_context=extra_context, is_html=False))

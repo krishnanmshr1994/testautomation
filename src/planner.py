@@ -12,7 +12,7 @@ class TestIntent(BaseModel):
 class TestPlan(BaseModel):
     intents: List[TestIntent]
 
-async def generate_test_plan(page: Page) -> TestPlan:
+async def generate_test_plan(page: Page, extra_context: str = "") -> TestPlan:
     """
     Extracts the DOM elements from the page and asks the LLM to generate a test plan.
     """
@@ -52,14 +52,21 @@ Include:
 1. Happy path tests (valid inputs)
 2. Negative tests (invalid/empty inputs)
 3. Security probes: inject <script>alert(1)</script> into text fields, and ' OR 1=1-- into form fields
+"""
+    if extra_context:
+        prompt += f"""
+IMPORTANT USER CONTEXT/CREDENTIALS TO USE:
+{extra_context}
+"""
 
+    prompt += """
 Respond ONLY with a JSON object in this exact format:
-{{
+{
   "intents": [
-    {{"description": "...", "expected_outcome": "...", "is_security_probe": false}},
+    {"description": "...", "expected_outcome": "...", "is_security_probe": false},
     ...
   ]
-}}
+}
 """
     response = await ask_llm(prompt)
 
