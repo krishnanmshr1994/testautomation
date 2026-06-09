@@ -1,14 +1,25 @@
 import asyncio
 
+import os
+from datetime import datetime
+
 class AsyncLogger:
     def __init__(self):
         self.listeners = []
+        os.makedirs("logs", exist_ok=True)
+        self.log_file = os.path.join("logs", "automation.log")
 
-    async def log(self, message: str):
+    async def log(self, message: str, write_to_file: bool = True):
         print(message)  # Always print to terminal
         
-        # Remove dead listeners
-        self.listeners = [q for q in self.listeners if not q.empty() or True] # Wait, we shouldn't kill empty ones, just rely on try/except or manual unregister if needed. Actually, a simpler way is to just put it in all queues.
+        # Append to log file
+        if write_to_file:
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    f.write(f"[{timestamp}] {message}\n")
+            except Exception:
+                pass
         
         for queue in self.listeners:
             await queue.put(message)
@@ -24,5 +35,5 @@ class AsyncLogger:
 
 stream_logger = AsyncLogger()
 
-async def stream_log(message: str):
-    await stream_logger.log(message)
+async def stream_log(message: str, write_to_file: bool = True):
+    await stream_logger.log(message, write_to_file)

@@ -124,7 +124,7 @@ Respond ONLY with a JSON object in this exact format:
         data = json.loads(cleaned)
         plan = TestPlan(**data)
     except Exception as e:
-        await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}\nRaw Response: {response[:200]}")
+        await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}\nRaw Response:\n{response}")
         plan = TestPlan(intents=[
             TestIntent(description="Observe the page", expected_outcome="Page loads successfully", is_security_probe=False)
         ])
