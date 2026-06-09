@@ -79,7 +79,12 @@ async def stream_logs():
         try:
             while True:
                 message = await q.get()
-                yield f"data: {message}\n\n"
+                # SSE requires 'data: ' prefix for every line of a multi-line payload
+                lines = str(message).splitlines()
+                if not lines:
+                    continue
+                sse_data = "\n".join(f"data: {line}" for line in lines)
+                yield f"{sse_data}\n\n"
         except asyncio.CancelledError:
             stream_logger.remove_listener(q)
             raise
