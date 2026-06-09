@@ -28,13 +28,14 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
     for idx, intent in enumerate(plan.intents):
         await stream_log(f"\n--- Step {idx + 1}/{len(plan.intents)}: {intent.description} ---")
 
-        # Ensure we are on the correct starting page before executing the next test
-        if page.url != base_url:
-            await stream_log(f"  [State Reset] Navigating back to {base_url}")
+        # Always reset to a perfectly clean DOM state between tests
+        # This prevents inputs filled in Step N-1 from leaking into Step N
+        if idx > 0:
             try:
+                await stream_log(f"  [State Reset] Reloading clean page state...")
                 await page.goto(base_url, wait_until="domcontentloaded", timeout=10000)
             except Exception:
-                pass # Proceed anyway, maybe it's close enough or just an anchor change
+                pass
 
         # Ask LLM to identify the CSS selector for the intended action
         dom_snapshot = await distill_dom(page)
