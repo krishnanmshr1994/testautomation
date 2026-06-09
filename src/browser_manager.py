@@ -26,6 +26,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
             ],
             temperature=0.3,
             max_tokens=8192,
+            extra_body={"chat_template_kwargs": {"thinking": False}},
             timeout=30.0
         )
         return response.choices[0].message.content
