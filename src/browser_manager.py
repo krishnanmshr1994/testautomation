@@ -108,7 +108,8 @@ async def init_browser(url_or_html: str, is_html: bool = False):
 
     # Native Playwright event listeners for error/network capture
     page.on("console", lambda msg: print(f"[Browser Console - {msg.type.upper()}] {msg.text}") if msg.type in ("error", "warning") else None)
-    page.on("requestfailed", lambda req: print(f"[Failed Request] {req.url} — {req.failure}"))
+    # Suppress harmless aborted request noise
+    # page.on("requestfailed", lambda req: print(f"[Failed Request] {req.url} — {req.failure}"))
 
     # Auto-dismiss dialogs to prevent XSS payloads from blocking execution
     async def handle_dialog(dialog):
