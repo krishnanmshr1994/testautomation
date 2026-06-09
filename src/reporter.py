@@ -40,13 +40,14 @@ class LiveReporter:
         self.audit_result = audit_result
         self.intents      = plan.intents[:]
 
+        # ── Write main combined report header (results appended live later) ──
         with open(self.tc_path, "w", encoding="utf-8") as f:
             f.write("=" * 70 + "\n")
             f.write(f"  QA & SECURITY TEST CASES REPORT FOR: {self.target_url}\n")
             f.write(f"  Generated: {self.display_ts}\n")
             f.write("=" * 70 + "\n\n")
 
-            # Section 1 — Static Security Audit (we have this already)
+            # Section 1 — Static Security Audit
             f.write("SECTION 1: STATIC SECURITY AUDIT\n")
             f.write("  (Deep OWASP Top 10 HTML analysis)\n")
             f.write("-" * 70 + "\n")
@@ -65,6 +66,42 @@ class LiveReporter:
             f.write("  (Happy path + negative/boundary tests — results written live)\n")
             f.write("-" * 70 + "\n")
 
+        # ── Write standalone test_cases_planned.txt RIGHT NOW (before execution) ──
+        planned_path = os.path.join(self.output_dir, "test_cases_planned.txt")
+        func   = [i for i in self.intents if not i.is_security_probe]
+        probes = [i for i in self.intents if i.is_security_probe]
+
+        with open(planned_path, "w", encoding="utf-8") as f:
+            f.write("=" * 70 + "\n")
+            f.write(f"  PLANNED TEST CASES FOR: {self.target_url}\n")
+            f.write(f"  Generated: {self.display_ts}\n")
+            f.write(f"  Total: {len(self.intents)} cases "
+                    f"({len(func)} functional, {len(probes)} security probes)\n")
+            f.write("=" * 70 + "\n\n")
+
+            f.write("FUNCTIONAL TEST CASES\n")
+            f.write("  (Happy path + negative/boundary tests)\n")
+            f.write("-" * 70 + "\n")
+            for idx, intent in enumerate(func, 1):
+                f.write(f"\n  TC-{idx:03d}\n")
+                f.write(f"    Test     : {intent.description}\n")
+                f.write(f"    Expected : {intent.expected_outcome}\n")
+
+            f.write("\n\nSECURITY PROBE TEST CASES\n")
+            f.write("  (XSS, SQLi, OWASP injection payloads)\n")
+            f.write("-" * 70 + "\n")
+            for idx, intent in enumerate(probes, 1):
+                f.write(f"\n  SEC-{idx:03d}\n")
+                f.write(f"    Probe    : {intent.description}\n")
+                f.write(f"    Expected : {intent.expected_outcome}\n")
+
+            f.write("\n\n" + "=" * 70 + "\n")
+            f.write("  NOTE: This file contains planned test cases only.\n")
+            f.write("  Results are written to test_cases_report.txt during execution.\n")
+            f.write("=" * 70 + "\n")
+
+        self.planned_path = planned_path
+        await stream_log(f"[LiveReporter] Test plan saved: {planned_path}")
         await stream_log(f"[LiveReporter] Report file opened: {self.tc_path}")
 
     async def record(self, intent: TestIntent, result: dict):
