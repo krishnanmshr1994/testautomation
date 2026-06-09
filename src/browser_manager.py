@@ -8,6 +8,11 @@ _playwright = None
 _browser: Browser = None
 
 def get_ai_client() -> AsyncOpenAI:
+    if os.getenv("GEMINI_API_KEY"):
+        return AsyncOpenAI(
+            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+            api_key=os.getenv("GEMINI_API_KEY"),
+        )
     if os.getenv("GROQ_API_KEY"):
         return AsyncOpenAI(
             base_url="https://api.groq.com/openai/v1",
@@ -22,11 +27,6 @@ def get_ai_client() -> AsyncOpenAI:
         return AsyncOpenAI(
             base_url="https://models.inference.ai.azure.com",
             api_key=os.getenv("GITHUB_TOKEN"),
-        )
-    if os.getenv("GEMINI_API_KEY"):
-        return AsyncOpenAI(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=os.getenv("GEMINI_API_KEY"),
         )
     return AsyncOpenAI(
         base_url="https://integrate.api.nvidia.com/v1",
@@ -80,14 +80,14 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
-        if os.getenv("GROQ_API_KEY"):
+        if os.getenv("GEMINI_API_KEY"):
+            default_model = "gemini-2.5-flash"
+        elif os.getenv("GROQ_API_KEY"):
             default_model = "llama-3.3-70b-versatile"
         elif os.getenv("HF_TOKEN"):
             default_model = "Qwen/Qwen2.5-72B-Instruct"
         elif os.getenv("GITHUB_TOKEN"):
             default_model = "gpt-4o-mini"
-        elif os.getenv("GEMINI_API_KEY"):
-            default_model = "gemini-2.5-flash"
         else:
             default_model = "meta/llama-3.3-70b-instruct"
             
