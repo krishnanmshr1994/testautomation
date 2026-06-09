@@ -134,7 +134,7 @@ async def run_automation(target: str,
 
     # Parallel Execution Phase
     # Gemini and GitHub Models handle massive load effortlessly. NVIDIA's free endpoint needs throttling.
-    max_concurrency = 10 if (os.getenv("GEMINI_API_KEY") or os.getenv("GITHUB_TOKEN")) else 2
+    max_concurrency = 10 if (os.getenv("GEMINI_API_KEY") or os.getenv("GITHUB_TOKEN") or os.getenv("HF_TOKEN")) else 2
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     
