@@ -60,7 +60,8 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
         )
         return response.choices[0].message.content
     except Exception as e:
-        print(f"\n[LLM Error] API request failed or timed out: {e}")
+        from src.logger import stream_log
+        await stream_log(f"\n[LLM Error] API request failed or timed out: {e}")
         return "{}"
 
 async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, pydantic_model=None, max_retries: int = 3):
@@ -84,7 +85,8 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
             return data
         except Exception as e:
             last_error = str(e)
-            print(f"[Self-Healing] Attempt {attempt + 1} failed. Error: {last_error}")
+            from src.logger import stream_log
+            await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed. Error: {last_error}")
             current_prompt = prompt + f"\n\n[System Feedback] Your previous response failed to parse as valid JSON. Error: {last_error}\nPlease fix the formatting and try again. Respond ONLY with a valid JSON object."
     
     raise ValueError(f"Failed to generate valid JSON after {max_retries} attempts. Last error: {last_error}")
