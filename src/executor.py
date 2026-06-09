@@ -38,12 +38,13 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
 
 If you cannot identify the element, respond with: {{"selector": null, "action": null}}
 """
-        raw = await ask_llm(selector_prompt, system="You are a Playwright automation expert. Respond only with JSON.")
-        match = re.search(r'\{.*\}', raw, re.DOTALL)
-        cleaned = match.group(0) if match else raw
-        
+        from src.browser_manager import ask_llm_json_with_healing
         try:
-            action_data = json.loads(cleaned)
+            action_data = await ask_llm_json_with_healing(
+                selector_prompt,
+                system="You are a Playwright automation expert. Respond only with JSON.",
+                max_retries=2
+            )
         except Exception:
             action_data = {}
 
@@ -159,11 +160,14 @@ IMPORTANT RULES:
 2. For security probes (like XSS/SQLi), if the payload is reflected unsanitized or causes an error trace, mark it as FAILED (vulnerable). If it is blocked or sanitized, mark it as SUCCESS (secure).
 3. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
 """
-                raw_verify = await ask_llm(verify_prompt, system="You are a QA verification expert. Respond only with JSON.", temperature=0.0)
-                match = re.search(r'\{.*\}', raw_verify, re.DOTALL)
-                cleaned_verify = match.group(0) if match else raw_verify
+                from src.browser_manager import ask_llm_json_with_healing
                 try:
-                    verify_data = json.loads(cleaned_verify)
+                    verify_data = await ask_llm_json_with_healing(
+                        verify_prompt,
+                        system="You are a QA verification expert. Respond only with JSON.",
+                        temperature=0.0,
+                        max_retries=2
+                    )
                     step_result["verification_success"] = verify_data.get("success", False)
                     step_result["details"] = verify_data.get("details", "")
                 except Exception:

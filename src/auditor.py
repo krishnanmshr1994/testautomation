@@ -89,15 +89,17 @@ Respond ONLY with valid JSON in this exact format:
 If truly nothing is found for these categories, return: {{"vulnerabilities": []}}
 """
 
-        response = await ask_llm(prompt, system="You are an OWASP-certified penetration tester. Respond only with JSON.", temperature=0.0)
+        from src.browser_manager import ask_llm_json_with_healing
         try:
-            match = re.search(r'\{.*\}', response, re.DOTALL)
-            cleaned = match.group(0) if match else response
-            data = json.loads(cleaned)
-            result = StaticAuditResult(**data)
+            result = await ask_llm_json_with_healing(
+                prompt,
+                system="You are an OWASP-certified penetration tester. Respond only with JSON.",
+                temperature=0.0,
+                pydantic_model=StaticAuditResult
+            )
             all_vulnerabilities.extend(result.vulnerabilities)
         except Exception as e:
-            await stream_log(f"[Warning] Could not parse audit result for {pass_name}. Error: {e}")
+            await stream_log(f"[Warning] Could not parse audit result for {pass_name} after retries. Error: {e}")
 
     final_result = StaticAuditResult(vulnerabilities=all_vulnerabilities)
     await stream_log(f"Audit complete. Found {len(final_result.vulnerabilities)} vulnerability(ies).")

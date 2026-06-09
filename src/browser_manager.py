@@ -63,6 +63,32 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
         print(f"\n[LLM Error] API request failed or timed out: {e}")
         return "{}"
 
+async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, pydantic_model=None, max_retries: int = 3):
+    """
+    Calls the LLM and attempts to parse the result as JSON.
+    If parsing or Pydantic validation fails, it appends the error to the prompt and retries.
+    """
+    import json
+    import re
+    current_prompt = prompt
+    last_error = ""
+
+    for attempt in range(max_retries):
+        response = await ask_llm(current_prompt, system=system, temperature=temperature)
+        try:
+            match = re.search(r'\{.*\}', response, re.DOTALL)
+            cleaned = match.group(0) if match else response
+            data = json.loads(cleaned)
+            if pydantic_model:
+                return pydantic_model(**data)
+            return data
+        except Exception as e:
+            last_error = str(e)
+            print(f"[Self-Healing] Attempt {attempt + 1} failed. Error: {last_error}")
+            current_prompt = prompt + f"\n\n[System Feedback] Your previous response failed to parse as valid JSON. Error: {last_error}\nPlease fix the formatting and try again. Respond ONLY with a valid JSON object."
+    
+    raise ValueError(f"Failed to generate valid JSON after {max_retries} attempts. Last error: {last_error}")
+
 async def init_browser(url_or_html: str, is_html: bool = False):
     """
     Initializes a local Playwright browser (Chromium, headless).

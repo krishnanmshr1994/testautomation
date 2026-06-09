@@ -58,12 +58,9 @@ If YES, return:
 
 Respond ONLY with a valid JSON object.
 """
-    import re
-    response_text = await ask_llm(prompt)
+    from src.browser_manager import ask_llm_json_with_healing
     try:
-        match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        cleaned = match.group(0) if match else response_text
-        data = json.loads(cleaned)
+        data = await ask_llm_json_with_healing(prompt, max_retries=2)
         if data.get("needs_input"):
             return {
                 "prompt_message": data.get("prompt_message", ""),
@@ -202,16 +199,15 @@ Respond ONLY with a JSON object in this exact format:
   ]
 }
 """
-    response = await ask_llm(prompt)
-
-    import re
+    from src.browser_manager import ask_llm_json_with_healing
     try:
-        match = re.search(r'\{.*\}', response, re.DOTALL)
-        cleaned = match.group(0) if match else response
-        data = json.loads(cleaned)
-        ai_plan = TestPlan(**data)
+        ai_plan = await ask_llm_json_with_healing(
+            prompt,
+            pydantic_model=TestPlan,
+            max_retries=3
+        )
     except Exception as e:
-        await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}")
+        await stream_log(f"[Warning] Could not parse test plan JSON after retries. Error: {e}")
         ai_plan = TestPlan(intents=[])
 
     # Merge: user-defined tests FIRST, then AI-generated
