@@ -12,6 +12,51 @@ class TestIntent(BaseModel):
 class TestPlan(BaseModel):
     intents: List[TestIntent]
 
+async def analyze_for_required_context(page: Page) -> str | None:
+    """
+    Analyzes the DOM to determine if user context/credentials are required for effective testing.
+    Returns a prompt string to ask the user, or None if no context is needed.
+    """
+    print("\n--- Analyzing Page for Required Context ---")
+    
+    # Extract key DOM elements
+    dom_summary = await page.evaluate("""() => {
+        const elements = [];
+        document.querySelectorAll('input, button, select, form').forEach(el => {
+            elements.push({
+                tag: el.tagName.toLowerCase(),
+                type: el.type || null,
+                name: el.name || null,
+                id: el.id || null,
+                placeholder: el.placeholder || null,
+                text: el.innerText?.trim().substring(0, 50) || null
+            });
+        });
+        return elements;
+    }""")
+
+    prompt = f"""
+You are an AI analyzing a webpage to determine if user input is necessary before automated testing begins.
+
+Page Elements:
+{json.dumps(dom_summary, indent=2)}
+
+Does this page require specific user credentials (like a login form) or highly specific user selections to be properly tested?
+If no, return {{"needs_input": false, "prompt_message": null}}.
+If yes, return {{"needs_input": true, "prompt_message": "..."}} where prompt_message is a clear, concise question asking the user for the required information (e.g. "We detected a login form. Please provide the username and password to use for testing, or press Enter to skip and use random data:").
+
+Respond ONLY with a JSON object in this exact format.
+"""
+    response_text = await ask_llm(prompt)
+    try:
+        data = json.loads(response_text.strip("```json\n").strip("```").strip())
+        if data.get("needs_input") and data.get("prompt_message"):
+            return data["prompt_message"]
+    except Exception as e:
+        print(f"[Warning] Failed to parse context analysis response: {e}")
+    
+    return None
+
 async def generate_test_plan(page: Page, extra_context: str = "") -> TestPlan:
     """
     Extracts the DOM elements from the page and asks the LLM to generate a test plan.

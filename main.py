@@ -3,14 +3,14 @@ import os
 from dotenv import load_dotenv
 from src.browser_manager import init_browser, close_browser
 from src.auditor import perform_static_audit
-from src.planner import generate_test_plan
-from src.executor import execute_plan
 from src.reporter import generate_report
+from src.planner import generate_test_plan, analyze_for_required_context
+from src.executor import execute_plan
 
 # Load environment variables (e.g., NVIDIA_API_KEY)
 load_dotenv()
 
-async def run_automation(target: str, extra_context: str = "", is_html: bool = False):
+async def run_automation(target: str, is_html: bool = False):
     print(f"\nStarting automation for: {'Raw HTML' if is_html else target}")
     print("Launching headless browser...")
 
@@ -23,6 +23,14 @@ async def run_automation(target: str, extra_context: str = "", is_html: bool = F
         # 1. Security: Static Audit
         raw_html = await page.content()
         audit_result = await perform_static_audit(page, raw_html)
+
+        # 1.5 Context Analysis: Check if the AI needs credentials to proceed
+        extra_context = ""
+        prompt_msg = await analyze_for_required_context(page)
+        if prompt_msg:
+            # Run blocking input() in a separate thread so we don't freeze the async event loop
+            extra_context = await asyncio.to_thread(input, f"\n[AI Request] {prompt_msg}\n> ")
+            extra_context = extra_context.strip()
 
         # 2. Plan: Generate Test Plan
         plan = await generate_test_plan(page, extra_context=extra_context)
@@ -47,9 +55,5 @@ if __name__ == "__main__":
         test_target = "https://example.com"
         print(f"No URL provided, defaulting to {test_target}")
 
-    print("\n[Optional] Provide any specific credentials, scenarios, or instructions for the AI.")
-    print("Example: 'Use username: admin and password: password123' or 'Focus on the checkout flow'")
-    extra_context = input("Context (press Enter to skip): ").strip()
-
     print(f"\nTesting {test_target}...")
-    asyncio.run(run_automation(test_target, extra_context=extra_context, is_html=False))
+    asyncio.run(run_automation(test_target, is_html=False))
