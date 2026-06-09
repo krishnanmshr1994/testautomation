@@ -140,7 +140,31 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
             # Smart URL-based shortcut for navigation tests
             url_keywords = [w.lower() for w in intent.expected_outcome.split() if len(w) > 3 and w.isalpha()]
             url_match = any(kw in current_url.lower() for kw in url_keywords)
-            if url_match and action in ("click", None):
+            
+            fast_fail_security = False
+            if intent.is_security_probe and getattr(intent, "attack_type", None) and payload:
+                fast_fail_security = True
+                if intent.attack_type == "XSS":
+                    if payload in page_text:
+                        step_result["verification_success"] = False
+                        step_result["details"] = f"VULNERABLE: XSS payload reflected un-encoded."
+                    else:
+                        step_result["verification_success"] = True
+                        step_result["details"] = "SECURE: XSS payload blocked or sanitized."
+                elif intent.attack_type in ("SQLi", "CommandInjection", "SSTI", "LFI", "SSRF"):
+                    error_signatures = ["sql syntax", "mysql_fetch", "syntax error", "traceback", "internal server error", "root:x:0:0"]
+                    if any(sig in page_text.lower() for sig in error_signatures):
+                        step_result["verification_success"] = False
+                        step_result["details"] = f"VULNERABLE: Found error signature indicating {intent.attack_type}."
+                    else:
+                        step_result["verification_success"] = True
+                        step_result["details"] = f"SECURE: No {intent.attack_type} indicators detected."
+                else:
+                    fast_fail_security = False # Fallback to LLM for unknown
+
+            if fast_fail_security:
+                pass # Already handled deterministically
+            elif url_match and action in ("click", None):
                 step_result["verification_success"] = True
                 step_result["details"] = f"URL changed to '{current_url}' which matches expected outcome."
             else:

@@ -41,9 +41,24 @@ async def perform_static_audit(page: Page) -> StaticAuditResult:
     clean_html = await distill_dom(page)
     all_vulnerabilities = []
 
+    async def run_audit_pass(pass_prompt: str, name: str) -> list:
+        from src.browser_manager import ask_llm_json_with_healing
+        try:
+            result = await ask_llm_json_with_healing(
+                pass_prompt,
+                system="You are an OWASP-certified penetration tester. Respond only with JSON.",
+                temperature=0.0,
+                pydantic_model=StaticAuditResult
+            )
+            return result.vulnerabilities
+        except Exception as e:
+            await stream_log(f"[Warning] Could not parse audit result for {name} after retries. Error: {e}")
+            return []
+
+    tasks = []
     for pass_key, pass_info in rules_data.items():
         pass_name = pass_info.get("name", pass_key)
-        await stream_log(f"  → Running Pass: {pass_name}")
+        await stream_log(f"  → Queueing Pass: {pass_name}")
         
         rules_list = pass_info.get("rules", [])
         rules_text = "\n".join([f"- {r['category']}: {r['description']}" for r in rules_list])
@@ -88,18 +103,12 @@ Respond ONLY with valid JSON in this exact format:
 
 If truly nothing is found for these categories, return: {{"vulnerabilities": []}}
 """
+        tasks.append(run_audit_pass(prompt, pass_name))
 
-        from src.browser_manager import ask_llm_json_with_healing
-        try:
-            result = await ask_llm_json_with_healing(
-                prompt,
-                system="You are an OWASP-certified penetration tester. Respond only with JSON.",
-                temperature=0.0,
-                pydantic_model=StaticAuditResult
-            )
-            all_vulnerabilities.extend(result.vulnerabilities)
-        except Exception as e:
-            await stream_log(f"[Warning] Could not parse audit result for {pass_name} after retries. Error: {e}")
+    import asyncio
+    results = await asyncio.gather(*tasks)
+    for res in results:
+        all_vulnerabilities.extend(res)
 
     final_result = StaticAuditResult(vulnerabilities=all_vulnerabilities)
     await stream_log(f"Audit complete. Found {len(final_result.vulnerabilities)} vulnerability(ies).")
