@@ -117,6 +117,8 @@ If truly nothing is found for these categories, return: {{"vulnerabilities": []}
         cwe = f" ({v.cwe_id})" if v.cwe_id else ""
         owasp = f" [{v.owasp_category}]" if v.owasp_category else ""
         await stream_log(f"  [{v.severity.upper()}]{owasp}{cwe} {v.title}")
+        if v.evidence:
+            await stream_log(f"    → Evidence: {v.evidence}")
         if v.remediation:
             await stream_log(f"    → Fix: {v.remediation}")
 
