@@ -113,7 +113,9 @@ For EVERY issue you find, return a vulnerability object with:
 - evidence: The exact HTML snippet or attribute that proves the finding (keep it short)
 - remediation: One concrete sentence describing the fix
 
-Think like an attacker. Do not skip anything. Be thorough and specific.
+IMPORTANT ENFORCEMENT RULES:
+1. Think like an attacker. Do not skip anything. Be thorough and specific.
+2. If multiple elements share the SAME vulnerability (e.g., 3 different 'http://' links instead of 'https://'), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object and list ALL instances in the `evidence` field.
 
 Respond ONLY with valid JSON in this exact format:
 {{
@@ -133,7 +135,7 @@ Respond ONLY with valid JSON in this exact format:
 If truly nothing is found, return: {{"vulnerabilities": []}}
 """
 
-    response = await ask_llm(prompt, system="You are an OWASP-certified penetration tester. Respond only with JSON.")
+    response = await ask_llm(prompt, system="You are an OWASP-certified penetration tester. Respond only with JSON.", temperature=0.0)
     try:
         match = re.search(r'\{.*\}', response, re.DOTALL)
         cleaned = match.group(0) if match else response

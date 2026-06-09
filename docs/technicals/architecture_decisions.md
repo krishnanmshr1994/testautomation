@@ -92,8 +92,14 @@
 
 | File | When | Contents |
 |---|---|---|
-| `test_cases_planned.txt` | After planning | Test intents only, no results |
+| `test_cases_planned.txt` | After planning (before execution) | All test intents (Custom + AI-generated), no results |
 | `test_cases_report.txt` | Live during execution | Audit findings + live results |
 | `report.json` | After completion | Full structured JSON |
 
 Interactive HTML report viewer in the dashboard supports filter pills (All/Pass/Fail/Error/severity) and expandable accordion cards per test case.
+
+---
+
+## 16. Custom Test Cases Support
+**Decision:** Allow users to write and inject their own custom test cases via the web UI before automation starts.
+**Rationale:** AI-generated test cases cover 80% of standard flows (happy paths, boundary, security). Allowing human testers to define complex, domain-specific edge cases (in simple natural language) and injecting them into the test queue ensures 100% coverage. Custom tests are parsed and executed first, followed by AI-generated tests.

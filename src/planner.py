@@ -74,11 +74,60 @@ Respond ONLY with a valid JSON object.
     
     return None
 
-async def generate_test_plan(page: Page, extra_context: str = "") -> TestPlan:
+CUSTOM_TEST_FORMAT = """
+Test: <what to do in plain English>
+Expected: <what should happen>
+"""
+
+def parse_custom_tests(raw: str) -> list[TestIntent]:
+    """
+    Parses user-defined test cases from plain text.
+
+    Accepted format (one or more blocks):
+        Test: Click the login button
+        Expected: The login form is displayed
+
+    Lines starting with # are treated as comments and ignored.
+    """
+    intents = []
+    description = None
+    expected = None
+
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.lower().startswith("test:"):
+            description = line[5:].strip()
+        elif line.lower().startswith("expected:"):
+            expected = line[9:].strip()
+
+        if description and expected:
+            intents.append(TestIntent(
+                description=description,
+                expected_outcome=expected,
+                is_security_probe=False
+            ))
+            description = None
+            expected = None
+
+    return intents
+
+
+async def generate_test_plan(page: Page,
+                             extra_context: str = "",
+                             custom_tests_raw: str = "") -> TestPlan:
     """
     Extracts the DOM elements from the page and asks the LLM to generate a test plan.
+    If custom_tests_raw is provided, those intents are prepended to the AI-generated ones.
     """
     await stream_log("\n--- Discovering Page Elements ---")
+
+    # Parse user-defined test cases first
+    custom_intents = []
+    if custom_tests_raw and custom_tests_raw.strip():
+        custom_intents = parse_custom_tests(custom_tests_raw)
+        await stream_log(f"[Custom Tests] {len(custom_intents)} user-defined test case(s) added.")
 
     # Extract key DOM elements using Playwright
     dom_summary = await page.evaluate("""() => {
@@ -128,7 +177,7 @@ Use this information for the happy-path tests.
 IMPORTANT — No credentials or context were provided by the user.
 You MUST still generate realistic, concrete test cases using sensible default values appropriate to the detected form type. Examples:
 - Login forms: use username "testuser" and password "TestPass@123"
-- Search fields: use query "test product"  
+- Search fields: use query "test product"
 - Credit card fields: use card "4111111111111111", CVV "123", Expiry "12/28"
 - Email fields: use "tester@example.com"
 - Address fields: use "123 Test Street, New York, NY 10001"
@@ -147,18 +196,22 @@ Respond ONLY with a JSON object in this exact format:
 """
     response = await ask_llm(prompt)
 
-    # Parse the JSON from the LLM response
     import re
     try:
         match = re.search(r'\{.*\}', response, re.DOTALL)
         cleaned = match.group(0) if match else response
         data = json.loads(cleaned)
-        plan = TestPlan(**data)
+        ai_plan = TestPlan(**data)
     except Exception as e:
         await stream_log(f"[Warning] Could not parse test plan JSON. Error: {e}\nRaw Response:\n{response}")
-        plan = TestPlan(intents=[
+        ai_plan = TestPlan(intents=[
             TestIntent(description="Observe the page", expected_outcome="Page loads successfully", is_security_probe=False)
         ])
 
-    await stream_log(f"Generated {len(plan.intents)} test intents.")
+    # Merge: user-defined tests FIRST, then AI-generated
+    merged_intents = custom_intents + ai_plan.intents
+    plan = TestPlan(intents=merged_intents)
+
+    await stream_log(f"Generated {len(plan.intents)} test intents "
+                     f"({len(custom_intents)} custom + {len(ai_plan.intents)} AI-generated).")
     return plan

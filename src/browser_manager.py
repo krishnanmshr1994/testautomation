@@ -43,7 +43,7 @@ async def distill_dom(page) -> str:
     clean_html = re.sub(r'\\s+', ' ', distilled_html).strip()
     return clean_html
 
-async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.") -> str:
+async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2) -> str:
     """Helper to send a prompt to the LLM and get a text response."""
     client = get_ai_client()
     try:
@@ -53,7 +53,7 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.2,
+            temperature=temperature,
             top_p=0.7,
             max_tokens=4096,
             timeout=120.0

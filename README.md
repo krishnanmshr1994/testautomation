@@ -51,9 +51,11 @@ User enters URL → clicks "Commence Automation"
         │
         ▼
 [Step 4] Test Plan Generation (planner.py)
+         • Parses any Custom Test Cases provided by user
          • Extracts all input/button/link/form elements from DOM
          • LLM generates TestIntent list: description + expected_outcome
          • Includes: happy path, negative, security probes (XSS, SQLi)
+         • Combines Custom Tests + AI Tests
          • test_cases_planned.txt written to disk IMMEDIATELY (before execution)
         │
         ▼

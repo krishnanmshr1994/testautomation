@@ -80,9 +80,25 @@
             margin-bottom: 20px;
         }
 
-        input[type="text"]:focus {
+        input[type="text"]:focus, textarea:focus {
             border-color: var(--primary);
             box-shadow: var(--glow);
+        }
+
+        textarea {
+            width: 100%;
+            background: rgba(15,23,42,0.8);
+            border: 1px solid var(--border);
+            padding: 14px 18px;
+            border-radius: 12px;
+            color: white;
+            font-size: 0.95rem;
+            font-family: inherit;
+            outline: none;
+            transition: border 0.2s, box-shadow 0.2s;
+            margin-bottom: 20px;
+            resize: vertical;
+            line-height: 1.5;
         }
 
         /* Context prompt box — shown dynamically */
@@ -285,6 +301,9 @@
     <label for="urlInput">Target Website URL</label>
     <input type="text" id="urlInput" placeholder="https://example.com">
 
+    <label for="customTestsInput">Custom Test Cases (Optional)</label>
+    <textarea id="customTestsInput" placeholder="Test: Search for 'shoes'&#10;Expected: Search results for shoes are displayed" rows="3"></textarea>
+
     <!-- Context prompt — injected by AI only when needed -->
     <div id="contextBox">
         <div class="context-header">
@@ -371,6 +390,7 @@ evtSource.onmessage = (e) => {
 // ── Start ──────────────────────────────────────────────────────────────────
 async function handleStart() {
     const url = document.getElementById("urlInput").value.trim();
+    const customTests = document.getElementById("customTestsInput").value.trim();
     if (!url) { alert("Please enter a URL"); return; }
 
     // If we are paused waiting for context, submit the context
@@ -397,7 +417,7 @@ async function handleStart() {
         await fetch("/api/start-test", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ url })
+            body: JSON.stringify({ url: url, custom_tests: customTests })
         });
     } catch (err) {
         logLine(`[Error] Failed to start: ${err}`, "err");
@@ -506,7 +526,8 @@ async function loadHistory() {
             </td>
             <td>
                 <a href="/api/reports/${r.folder}/view" target="_blank" class="action-btn view">📄 View Report</a>
-                <a href="/api/reports/${r.folder}/txt" class="action-btn dl">⬇ TXT</a>
+                <a href="/api/reports/${r.folder}/planned" class="action-btn dl">⬇ Planned Tests</a>
+                <a href="/api/reports/${r.folder}/txt" class="action-btn dl">⬇ Results TXT</a>
             </td>
         </tr>
     `).join("");

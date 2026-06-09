@@ -25,15 +25,15 @@ async def index():
 @app.route("/api/start-test", methods=["POST"])
 async def start_test():
     data = await request.get_json()
-    url  = data.get("url", "").strip()
+    url              = data.get("url", "").strip()
+    custom_tests_raw = data.get("custom_tests", "")
     if not url:
         return jsonify({"error": "URL is required"}), 400
 
-    # Create a context queue so the background task can pause for user input
     q = asyncio.Queue()
     _context_queues[url] = q
 
-    asyncio.create_task(run_background_automation(url, q))
+    asyncio.create_task(run_background_automation(url, q, custom_tests_raw))
     return jsonify({"status": "started"})
 
 
@@ -55,9 +55,12 @@ async def submit_context():
 # ─────────────────────────────────────────────────────────────────────────────
 # Background runner — one browser session, analyze → (optional pause) → run
 # ─────────────────────────────────────────────────────────────────────────────
-async def run_background_automation(url: str, context_queue: asyncio.Queue):
+async def run_background_automation(url: str, context_queue: asyncio.Queue,
+                                    custom_tests_raw: str = ""):
     await stream_logger.log("--- INIT ---")
-    report = await run_automation(url, is_html=False, context_queue=context_queue)
+    report = await run_automation(url, is_html=False,
+                                  custom_tests_raw=custom_tests_raw,
+                                  context_queue=context_queue)
     _context_queues.pop(url, None)
     if report:
         await stream_logger.log("--- COMPLETE ---")
@@ -142,6 +145,15 @@ async def get_report_json(folder):
     if os.path.exists(path):
         return await send_file(path, mimetype="application/json")
     return jsonify({"error": "Not found"}), 404
+
+
+@app.route("/api/reports/<folder>/planned")
+async def get_report_planned(folder):
+    path = os.path.join("reports", folder, "test_cases_planned.txt")
+    if os.path.exists(path):
+        return await send_file(path, as_attachment=True,
+                               attachment_filename="test_cases_planned.txt")
+    return jsonify({"error": "Planned test cases not found"}), 404
 
 
 @app.route("/api/reports/<folder>/txt")

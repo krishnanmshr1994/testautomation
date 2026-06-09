@@ -17,6 +17,7 @@ NEEDS_INPUT_PREFIX = "NEEDS_INPUT:"
 async def run_automation(target: str,
                          is_html: bool = False,
                          extra_context: str = "",
+                         custom_tests_raw: str = "",
                          context_queue: asyncio.Queue = None) -> dict:
     """
     Single browser session:
@@ -66,7 +67,7 @@ async def run_automation(target: str,
             await stream_log(f"[User Context Applied] {extra_context}")
 
         # ── 3. Generate Test Plan ──────────────────────────────────────────────
-        test_plan = await generate_test_plan(page, extra_context)
+        test_plan = await generate_test_plan(page, extra_context, custom_tests_raw)
 
         # ── 4. Initialize Live Reporter (writes header + audit to disk NOW) ────
         live_reporter = LiveReporter(target)
