@@ -16,7 +16,7 @@
       },
       {
         "category": "A02:2021 – Cryptographic Failures",
-        "description": "HTTP links used instead of HTTPS for sensitive routes. Sensitive data or tokens present in URL parameters. Autocomplete not disabled on sensitive fields (password, credit card)."
+        "description": "Absolute links explicitly starting with 'http://' used instead of 'https://' for sensitive routes. DO NOT flag relative links (e.g., '/en' or '#section') as insecure. Sensitive data or tokens present in URL parameters. Autocomplete not disabled on sensitive fields (password, credit card)."
       }
     ]
   },
