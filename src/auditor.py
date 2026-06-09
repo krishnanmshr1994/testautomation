@@ -77,12 +77,12 @@ For EVERY issue you find, return a vulnerability object with:
 - severity: "low" | "medium" | "high" | "critical"
 - owasp_category: Most relevant category from the list above
 - cwe_id: Most relevant CWE ID (e.g. "CWE-79")
-- evidence: The exact HTML snippet or attribute that proves the finding (keep it short)
+- evidence: A single string containing ALL exact HTML snippets or attributes that prove the finding (separate multiple instances with a newline or comma).
 - remediation: One concrete sentence describing the fix
 
 IMPORTANT ENFORCEMENT RULES:
 1. Think like an attacker. Do not skip anything. Be thorough and specific.
-2. If multiple elements share the SAME vulnerability (e.g., 3 different 'http://' links instead of 'https://'), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object and list ALL instances in the `evidence` field.
+2. If multiple elements share the SAME vulnerability (e.g., 3 different 'http://' links instead of 'https://'), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object. You MUST list EVERY SINGLE INSTANCE in the `evidence` field. Do not just list the first one and discard the rest.
 3. Focus ONLY on the categories provided for this pass.
 4. ABSOLUTELY NO THEORETICAL RISKS: You MUST have concrete, visible evidence in the HTML snippet to report a vulnerability. If you cannot point to an exact line or attribute in the HTML, DO NOT report it. Do not say "potential for X exists" or "no explicit evidence found".
 
