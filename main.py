@@ -47,12 +47,12 @@ async def run_single_page(url: str,
                           run_dir: str) -> dict:
     async with semaphore:
         await stream_log(f"\n[{url}] Starting automation")
-        page = await init_browser(url, is_html)
-        if not page:
-            await stream_log(f"[{url}] Failed to load page.")
-            return {}
 
         try:
+            page = await init_browser(url, is_html)
+            if not page:
+                await stream_log(f"[{url}] Failed to load page.")
+                return {}
             # ── 2. Static Audit ────────────────────────────────────────────────────
             if run_audit:
                 audit_result = await perform_static_audit(page)
@@ -82,7 +82,8 @@ async def run_single_page(url: str,
             await stream_log(f"[{url}] Critical error: {str(e)}")
             return {}
         finally:
-            await page.context.close()
+            if 'page' in locals() and page:
+                await page.context.close()
 
 
 async def run_automation(target: str,
@@ -142,7 +143,7 @@ async def run_automation(target: str,
             context_queue, semaphore, run_dir
         ))
         
-    results = await asyncio.gather(*tasks)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
     
     # ── Aggregate All Sub-Reports into a Single Master Report ────────────────
     await stream_log(f"\n[Aggregator] Compiling master report from {len(results)} page(s)...")
@@ -161,7 +162,8 @@ async def run_automation(target: str,
     }
     
     for r in results:
-        if not r: continue
+        if isinstance(r, Exception) or not r: 
+            continue
         if r.get("static_audit") and r["static_audit"].get("vulnerabilities"):
             master_report["static_audit"]["vulnerabilities"].extend(r["static_audit"]["vulnerabilities"])
         if r.get("execution_results"):
