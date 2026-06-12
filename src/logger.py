@@ -10,7 +10,16 @@ class AsyncLogger:
         self.log_file = os.path.join("logs", "automation.log")
 
     async def log(self, message: str, write_to_file: bool = True):
-        print(message)  # Always print to terminal
+        import sys
+        try:
+            print(message)  # Always print to terminal
+        except UnicodeEncodeError:
+            try:
+                encoding = sys.stdout.encoding or 'utf-8'
+                encoded = message.encode(encoding, errors='replace')
+                print(encoded.decode(encoding))
+            except Exception:
+                pass
         
         # Append to log file
         if write_to_file:

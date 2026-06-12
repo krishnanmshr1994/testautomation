@@ -8,6 +8,11 @@ _playwright = None
 _browser: Browser = None
 
 def get_ai_client() -> AsyncOpenAI:
+    if os.getenv("OPENROUTER_API_KEY"):
+        return AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
     if os.getenv("NVIDIA_API_KEY"):
         return AsyncOpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
@@ -82,11 +87,14 @@ async def distill_dom(page) -> str:
     clean_html = re.sub(r'\s+', ' ', distilled_html).strip()
     return clean_html
 
-async def ask_llm(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2) -> str:
-    """Helper to send a prompt to the LLM and get a text response."""
+
+async def ask_llm(prompt: str = None, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, messages: list = None) -> tuple[str, str | None]:
+    """Helper to send a prompt or a list of messages to the LLM and get the content and reasoning details."""
     client = get_ai_client()
     try:
-        if os.getenv("NVIDIA_API_KEY"):
+        if os.getenv("OPENROUTER_API_KEY"):
+            default_model = "poolside/laguna-m.1:free"
+        elif os.getenv("NVIDIA_API_KEY"):
             default_model = "meta/llama-3.3-70b-instruct"
         elif os.getenv("GEMINI_API_KEY"):
             default_model = "gemini-2.5-flash"
@@ -99,18 +107,51 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
         else:
             default_model = "meta/llama-3.3-70b-instruct"
             
-        response = await client.chat.completions.create(
-            model=os.getenv("MODEL_NAME", default_model),
-            messages=[
+        model_name = os.getenv("MODEL_NAME", default_model)
+
+        if messages is None:
+            messages = [
                 {"role": "system", "content": system},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=temperature,
-            top_p=0.7,
-            max_tokens=4096,
-            timeout=120.0
-        )
-        return response.choices[0].message.content
+            ]
+
+        if os.getenv("OPENROUTER_API_KEY"):
+            import httpx
+            headers = {
+                "Authorization": f"Bearer {os.getenv('OPENROUTER_API_KEY')}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": temperature,
+                "top_p": 0.7,
+                "max_tokens": 4096,
+                "reasoning": {"enabled": True}
+            }
+            async with httpx.AsyncClient(timeout=120.0) as httpx_client:
+                response = await httpx_client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers=headers,
+                    json=payload
+                )
+                response.raise_for_status()
+                response_json = response.json()
+            message_data = response_json["choices"][0]["message"]
+            content = message_data.get("content") or ""
+            reasoning_details = message_data.get("reasoning_details")
+            return content, reasoning_details
+        else:
+            response = await client.chat.completions.create(
+                model=model_name,
+                messages=messages,
+                temperature=temperature,
+                top_p=0.7,
+                max_tokens=4096,
+                timeout=120.0
+            )
+            content = response.choices[0].message.content or ""
+            return content, None
     except Exception as e:
         from src.logger import stream_log
         await stream_log(f"\n[LLM Error] API request failed or timed out: {e}")
@@ -119,16 +160,20 @@ async def ask_llm(prompt: str, system: str = "You are a QA and Security testing 
 async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, pydantic_model=None, max_retries: int = 3):
     """
     Calls the LLM and attempts to parse the result as JSON.
-    If parsing or Pydantic validation fails, it appends the error to the prompt and retries.
+    If parsing or Pydantic validation fails, it appends the error to the message history and retries.
     """
     import json
     import re
-    current_prompt = prompt
+    
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": prompt}
+    ]
     last_error = ""
 
     for attempt in range(max_retries):
         try:
-            response = await ask_llm(current_prompt, system=system, temperature=temperature)
+            content, reasoning_details = await ask_llm(messages=messages, temperature=temperature)
         except Exception as api_err:
             last_error = f"API Error: {str(api_err)}"
             from src.logger import stream_log
@@ -137,11 +182,11 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
             await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed due to API Error. Retrying in {sleep_time:.1f}s...")
             import asyncio
             await asyncio.sleep(sleep_time)
-            continue # Retry without modifying the prompt for network errors
+            continue # Retry without modifying history for network errors
 
         try:
-            match = re.search(r'\{.*\}', response, re.DOTALL)
-            cleaned = match.group(0) if match else response
+            match = re.search(r'\{.*\}', content, re.DOTALL)
+            cleaned = match.group(0) if match else content
             data = json.loads(cleaned)
             if pydantic_model:
                 return pydantic_model(**data)
@@ -150,9 +195,20 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
             last_error = str(e)
             from src.logger import stream_log
             await stream_log(f"[Self-Healing] Attempt {attempt + 1} failed. JSON/Pydantic Error: {last_error}")
-            current_prompt = prompt + f"\n\n[System Feedback] Your previous response failed to parse as valid JSON. Error: {last_error}\nPlease fix the formatting and try again. Respond ONLY with a valid JSON object."
+            
+            # Record assistant turn preserving reasoning_details if present
+            assistant_turn = {"role": "assistant", "content": content}
+            if reasoning_details:
+                assistant_turn["reasoning_details"] = reasoning_details
+            
+            feedback_content = f"[System Feedback] Your previous response failed to parse as valid JSON. Error: {last_error}\nPlease fix the formatting and try again. Respond ONLY with a valid JSON object."
+            user_turn = {"role": "user", "content": feedback_content}
+            
+            messages.append(assistant_turn)
+            messages.append(user_turn)
     
     raise ValueError(f"Failed to generate valid JSON after {max_retries} attempts. Last error: {last_error}")
+
 
 async def init_browser(url_or_html: str, is_html: bool = False):
     """

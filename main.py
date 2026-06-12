@@ -198,7 +198,10 @@ if __name__ == "__main__":
     print("=" * 50)
     print("  AI QA & Security Automation Agent")
     print("=" * 50)
-    test_target = input("\nEnter the website URL to test: ").strip()
+    if len(sys.argv) > 1:
+        test_target = sys.argv[1].strip()
+    else:
+        test_target = input("\nEnter the website URL to test: ").strip()
     if not test_target:
         sys.exit(1)
     asyncio.run(run_automation(test_target, is_html=False))
