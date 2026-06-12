@@ -131,3 +131,35 @@ Interactive HTML report viewer in the dashboard supports filter pills (All/Pass/
 ## 21. Parallel Multi-Page Spidering
 **Decision:** Auto-crawl internal `<a>` tags and run full AI pipeline in parallel via `asyncio.gather`.
 **Rationale:** Moves the tool from a single-page scanner to a site-wide crawler. Throttled via `asyncio.Semaphore(2)` to prevent LLM API HTTP 429 Too Many Requests limits while mapping entire domains seamlessly. Isolated Playwright `BrowserContext` for each parallel branch ensures DOM state safety.
+
+---
+
+## 22. Migration to OpenRouter
+**Decision:** Migrate the primary LLM client/endpoint to OpenRouter.ai, using `poolside/laguna-m.1:free` as the default reasoning model and `meta-llama/llama-3.3-70b-instruct:free` as the default fast model.
+**Rationale:** The previous NVIDIA API endpoints suffered from frequent timeouts, high congestion, and lacked access to models supporting explicit reasoning tracks. OpenRouter provides a unified endpoint, supports free tiers of modern LLMs, and lets us configure reasoning parameter overlays.
+
+---
+
+## 23. Tiered Model Strategy
+**Decision:** Split tasks between a "reasoning model" and a "fast model".
+- **Reasoning Model:** Used for complex tasks (static security audits, test plan generation, context analysis) where planning and multi-turn logic are critical.
+- **Fast Model:** Used for high-frequency, simple execution steps (CSS selector identification, pass/fail action verification) where response latency is the primary constraint.
+**Rationale:** Restricting high-latency reasoning calls to early-phase orchestration saves execution time while utilizing cheap/fast models for iterative Playwright actions.
+
+---
+
+## 24. DOM Snapshot Caching
+**Decision:** Cache distilled DOM snapshots per URL state during execution.
+**Rationale:** Multiple actions (like selector identification and post-action verification) on the same page state repeatedly fetched and minified the DOM. Caching it locally reduces CPU overhead and avoids making redundant LLM calls on identical page views.
+
+---
+
+## 25. Timeout Fallback
+**Decision:** Wrap the reasoning model calls in a hard 45-second `asyncio.wait_for` timeout. If it times out, automatically fall back to executing the prompt using the fast model.
+**Rationale:** Free reasoning models can experience severe queues and delays. Rather than letting the automation hang indefinitely, falling back to a fast model keeps the pipeline active and ensures tests eventually complete.
+
+---
+
+## 26. API Client & Error Resiliency (Rate Limits & Congestion)
+**Decision:** Implement robust HTTP status checking and client-side exponential backoff retries (up to 5 attempts) directly in the network utility (`_call_openrouter`). Specifically handle HTTP `429 Too Many Requests`, server gateway errors (`502`, `503`, `504`), connection failures, and inline OpenRouter JSON error responses.
+**Rationale:** With parallel execution active, concurrent calls easily trigger OpenRouter's rate limits. Handling 429s and server congestion with self-healing backoff retries prevents cascading failures across parallel pipelines.

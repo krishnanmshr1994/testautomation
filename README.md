@@ -137,12 +137,22 @@ testautomation/
 
 ## ⚙️ Configuration
 
-Set your NVIDIA API key in `.env`:
+Set your OpenRouter API key and desired models in `.env`:
 ```env
-NVIDIA_API_KEY=nvapi-xxxxxxxxxxxxxxxxxxxx
+OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxx
+MODEL_NAME=poolside/laguna-m.1:free
+FAST_MODEL_NAME=meta-llama/llama-3.3-70b-instruct:free
 ```
 
-Model in use: **`meta/llama-3.3-70b-instruct`** via NVIDIA API (OpenAI-compatible endpoint).
+### Models in Use (Tiered Strategy)
+1. **Reasoning Model (`MODEL_NAME` / default: `poolside/laguna-m.1:free`)**: Used for high-complexity tasks (static security audits, test plan generation, and context analysis) with reasoning enabled.
+2. **Fast Model (`FAST_MODEL_NAME` / default: `meta-llama/llama-3.3-70b-instruct:free`)**: Used for low-complexity execution steps (CSS selector identification and action verification) to maximize speed.
+
+### Fault Tolerance, Performance & Parallelism
+- **Timeout Fallback**: If the reasoning model times out (hard capped at 45s), the system automatically falls back to the fast model to continue execution without blocking.
+- **Rate-Limit & Server Error Resilience**: Integrates automatic exponential backoff retries (up to 5 attempts) on HTTP `429 Too Many Requests`, gateway/server errors (`502`, `503`, `504`), and inline OpenRouter provider errors.
+- **Deduplicated DOM Caching**: Caches distilled DOM snapshots per URL state during execution to eliminate redundant LLM calls.
+- **Concurrency Cap**: Restricts parallel page audits and execution to a maximum concurrency of 3 to prevent API rate limit exhaustion.
 
 ---
 
