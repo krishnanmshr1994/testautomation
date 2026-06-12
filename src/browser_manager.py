@@ -16,19 +16,38 @@ _FAST_MODEL_DEFAULT = "meta-llama/llama-3.3-70b-instruct:free"
 _playwright = None
 _browser: Browser = None
 
-# Global LLM concurrency throttle.
-# All OpenRouter calls (reasoning + fast, across all parallel pages and audit passes)
-# must acquire this semaphore before firing. This prevents thundering-herd 429s.
-# Value: max simultaneous in-flight API requests to OpenRouter.
-_LLM_CONCURRENCY = 2
+# ── Model Pools (round-robin across free-tier models) ──────────────────
+# Each model has its own independent rate-limit bucket on OpenRouter.
+# On a 429, we immediately rotate to the next model instead of waiting.
+# This gives us N× the effective throughput with zero added latency.
+_FAST_MODEL_POOL = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemma-4-31b-it:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openai/gpt-oss-120b:free",
+]
+
+_REASONING_MODEL_POOL = [
+    "poolside/laguna-m.1:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openai/gpt-oss-120b:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+]
+
+_pool_index: int = 0            # round-robin cursor (best-effort, no lock needed)
+
+# Burst control: Free OpenRouter keys allow max ~2-3 concurrent connections.
+# This prevents all audit passes across all pages from firing on the exact same millisecond.
+_LLM_CONCURRENCY = 3
 _llm_semaphore: asyncio.Semaphore | None = None
 
 def _get_llm_semaphore() -> asyncio.Semaphore:
-    """Lazily initialise the global semaphore inside the running event loop."""
     global _llm_semaphore
     if _llm_semaphore is None:
         _llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
     return _llm_semaphore
+
 
 def get_ai_client() -> AsyncOpenAI:
     if os.getenv("OPENROUTER_API_KEY"):
@@ -111,104 +130,145 @@ async def distill_dom(page) -> str:
     return clean_html
 
 
-async def _call_openrouter(messages: list, model: str, temperature: float, max_tokens: int, use_reasoning: bool) -> tuple[str, str | None]:
-    """Internal: makes a direct httpx POST to OpenRouter. Shared by both reasoning and fast paths."""
+async def _call_openrouter(
+    messages: list,
+    model: str,
+    temperature: float,
+    max_tokens: int,
+    use_reasoning: bool,
+    model_pool: list[str] | None = None
+) -> tuple[str, str | None]:
+    """
+    Internal: POST to OpenRouter.
+    - use_reasoning=True  → single model (reasoning), standard backoff on 429.
+    - use_reasoning=False → rotates through model_pool on 429 (immediate, no wait).
+    """
     api_key = os.getenv("OPENROUTER_API_KEY")
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
         "X-OpenRouter-Title": "AI QA Security Automation"
     }
-    payload: dict = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "top_p": 0.7,
-        "max_tokens": max_tokens,
-    }
-    if use_reasoning:
-        payload["reasoning"] = {"enabled": True}
 
-    timeout_per_request = 30.0 if use_reasoning else 15.0
-    max_attempts = 5
+    candidates = model_pool if model_pool else [model]
+    pool_cursor = 0          # which candidate to try next
+    max_attempts = len(candidates) * 4   # allow 4 full cycles
     backoff_factor = 2.0
-    
+    timeout_per_request = 60.0 if use_reasoning else 30.0
+
     from src.logger import stream_log
     semaphore = _get_llm_semaphore()
-    
+
     for attempt in range(max_attempts):
-        # Acquire global throttle before every attempt to cap concurrent API calls
-        async with semaphore:
-          try:
-              async with httpx.AsyncClient(timeout=timeout_per_request) as client:
-                  response = await client.post(
-                      "https://openrouter.ai/api/v1/chat/completions",
-                      headers=headers,
-                      json=payload
-                  )
-              
-              # Check for rate limit 429
-              if response.status_code == 429:
-                  retry_after = response.headers.get("Retry-After")
-                  try:
-                      sleep_time = float(retry_after) if retry_after else backoff_factor * (2 ** attempt)
-                  except ValueError:
-                      sleep_time = backoff_factor * (2 ** attempt)
-                  
-                  await stream_log(
-                      f"[Rate Limit] OpenRouter 429 for model '{model}'. "
-                      f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-                  )
-                  # Release semaphore while sleeping so other callers aren't blocked
-                  await asyncio.sleep(sleep_time)
-                  continue
-              
-              # Check for server errors
-              if response.status_code in (502, 503, 504):
-                  sleep_time = backoff_factor * (2 ** attempt)
-                  await stream_log(
-                      f"[Server Error] OpenRouter returned {response.status_code} for model '{model}'. "
-                      f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-                  )
-                  await asyncio.sleep(sleep_time)
-                  continue
+        current_model = candidates[pool_cursor % len(candidates)]
+        payload: dict = {
+            "model": current_model,
+            "messages": messages,
+            "temperature": temperature,
+            "top_p": 0.7,
+            "max_tokens": max_tokens,
+        }
+        if use_reasoning:
+            payload["reasoning"] = {"enabled": True}
 
-              response.raise_for_status()
-              data = response.json()
-              
-              # Check if OpenRouter returned an embedded error inside a 200 OK response
-              if "choices" not in data or not data["choices"]:
-                  if "error" in data:
-                      err_msg = data["error"].get("message", "Unknown OpenRouter API error")
-                      code = data["error"].get("code")
-                      if code == 429 or "rate limit" in err_msg.lower() or "too many requests" in err_msg.lower():
-                          sleep_time = backoff_factor * (2 ** attempt)
-                          await stream_log(
-                              f"[Rate Limit] OpenRouter inline error '{err_msg}'. "
-                              f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-                          )
-                          await asyncio.sleep(sleep_time)
-                          continue
-                      raise ValueError(f"OpenRouter Error: {err_msg}")
-                  raise ValueError(f"Unexpected OpenRouter response format: {data}")
-              
-              message_data = data["choices"][0]["message"]
-              content = message_data.get("content") or ""
-              reasoning_details = message_data.get("reasoning_details")
-              return content, reasoning_details
+        try:
+            # Prevent "thundering herd" bursts across all pages
+            async with semaphore:
+                async with httpx.AsyncClient(timeout=timeout_per_request) as client:
+                    response = await client.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers=headers,
+                        json=payload
+                    )
 
-          except httpx.RequestError as req_err:
-              # Handle client-side network errors, connection timeouts, etc.
-              sleep_time = backoff_factor * (2 ** attempt)
-              await stream_log(
-                  f"[Network Error] {type(req_err).__name__} for model '{model}': {req_err}. "
-                  f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-              )
-              await asyncio.sleep(sleep_time)
-              continue
-            
-    # If we get here, all attempts failed
-    raise RuntimeError(f"Failed to call OpenRouter model '{model}' after {max_attempts} attempts.")
+            # ── 429: rotate to next pool model (no wait) or backoff if exhausted ──
+            if response.status_code == 429:
+                if len(candidates) > 1:
+                    next_model = candidates[(pool_cursor + 1) % len(candidates)]
+                    pool_cursor += 1
+                    
+                    # If we've exhausted all models in the pool, OpenRouter is rate-limiting
+                    # the entire API Key. We MUST sleep before the next cycle.
+                    if pool_cursor % len(candidates) == 0:
+                        retry_after = response.headers.get("Retry-After")
+                        try:
+                            sleep_time = float(retry_after) if retry_after else backoff_factor * (2 ** (attempt // len(candidates)))
+                        except ValueError:
+                            sleep_time = backoff_factor * (2 ** (attempt // len(candidates)))
+                        await stream_log(
+                            f"[Pool] Key rate-limited across all {len(candidates)} models. "
+                            f"Sleeping for {sleep_time:.1f}s before next cycle..."
+                        )
+                        await asyncio.sleep(sleep_time)
+                    else:
+                        await stream_log(f"[Pool] 429 on '{current_model}' → rotating to '{next_model}'...")
+                    
+                    continue  # retry on next model
+                else:
+                    # Single-model path: backoff and retry same
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        sleep_time = float(retry_after) if retry_after else backoff_factor * (2 ** attempt)
+                    except ValueError:
+                        sleep_time = backoff_factor * (2 ** attempt)
+                    await stream_log(
+                        f"[Rate Limit] 429 for '{current_model}'. "
+                        f"Retrying in {sleep_time:.0f}s (attempt {attempt+1}/{max_attempts})..."
+                    )
+                    await asyncio.sleep(sleep_time)
+                    continue
+
+            # ── 5xx server errors: short backoff, same model ──────────────────
+            if response.status_code in (502, 503, 504):
+                sleep_time = min(backoff_factor * (2 ** attempt), 30.0)
+                await stream_log(
+                    f"[Server Error] {response.status_code} for '{current_model}'. "
+                    f"Retrying in {sleep_time:.0f}s..."
+                )
+                await asyncio.sleep(sleep_time)
+                continue
+
+            response.raise_for_status()
+            data = response.json()
+
+            # ── OpenRouter sometimes embeds errors in a 200 OK body ────────────
+            if "choices" not in data or not data["choices"]:
+                if "error" in data:
+                    err_msg = data["error"].get("message", "Unknown error")
+                    code = data["error"].get("code")
+                    if code == 429 or "rate limit" in err_msg.lower() or "too many" in err_msg.lower():
+                        if len(candidates) > 1:
+                            pool_cursor += 1
+                            if pool_cursor % len(candidates) == 0:
+                                sleep_time = backoff_factor * (2 ** (attempt // len(candidates)))
+                                await stream_log(f"[Pool] Inline 429 on all models. Sleeping {sleep_time:.1f}s...")
+                                await asyncio.sleep(sleep_time)
+                            else:
+                                await stream_log(f"[Pool] Inline 429 on '{current_model}' → rotating pool...")
+                            continue
+                        await asyncio.sleep(backoff_factor * (2 ** attempt))
+                        continue
+                    raise ValueError(f"OpenRouter Error: {err_msg}")
+                raise ValueError(f"Unexpected OpenRouter response format: {data}")
+
+            message_data = data["choices"][0]["message"]
+            content = message_data.get("content") or ""
+            reasoning_details = message_data.get("reasoning_details")
+            return content, reasoning_details
+
+        except httpx.RequestError as req_err:
+            sleep_time = min(backoff_factor * (2 ** attempt), 20.0)
+            await stream_log(
+                f"[Network Error] {type(req_err).__name__} on '{current_model}': {req_err}. "
+                f"Retrying in {sleep_time:.0f}s..."
+            )
+            await asyncio.sleep(sleep_time)
+            continue
+
+    raise RuntimeError(
+        f"All {len(candidates)} pool model(s) exhausted after {max_attempts} attempts."
+    )
+
 
 
 async def ask_llm(prompt: str = None, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, messages: list = None) -> tuple[str, str | None]:
@@ -219,7 +279,9 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
     """
     try:
         if os.getenv("OPENROUTER_API_KEY"):
-            model_name = os.getenv("MODEL_NAME", _REASONING_MODEL_DEFAULT)
+            # Build reasoning pool: env override as first choice, then remaining defaults
+            env_model = os.getenv("MODEL_NAME", _REASONING_MODEL_DEFAULT)
+            pool = [env_model] + [m for m in _REASONING_MODEL_POOL if m != env_model]
             if messages is None:
                 messages = [
                     {"role": "system", "content": system},
@@ -228,8 +290,8 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             try:
                 # 45-second hard cap on reasoning model
                 return await asyncio.wait_for(
-                    _call_openrouter(messages, model_name, temperature, max_tokens=8192, use_reasoning=True),
-                    timeout=45.0
+                    _call_openrouter(messages, pool[0], temperature, max_tokens=8192, use_reasoning=True, model_pool=pool),
+                    timeout=60.0
                 )
             except asyncio.TimeoutError:
                 from src.logger import stream_log
@@ -265,29 +327,31 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
 
 async def ask_llm_fast(prompt: str = None, system: str = "You are a QA and Security testing expert.", temperature: float = 0.1, messages: list = None) -> tuple[str, str | None]:
     """
-    Fast model call (meta-llama/llama-3.3-70b-instruct by default).
-    Used for simple tasks: CSS selector identification, pass/fail verification.
-    No reasoning — optimised for speed (1-5s response time).
+    Fast model call — uses the FAST_MODEL_POOL for automatic round-robin rotation.
+    On a 429 from any model, the pool immediately tries the next one (no wait).
+    Used for: CSS selector identification, pass/fail verification, audit passes.
     """
     try:
         if os.getenv("OPENROUTER_API_KEY"):
-            model_name = os.getenv("FAST_MODEL_NAME", _FAST_MODEL_DEFAULT)
+            # Build pool: env override as first choice, then remaining defaults
+            env_model = os.getenv("FAST_MODEL_NAME", _FAST_MODEL_DEFAULT)
+            pool = [env_model] + [m for m in _FAST_MODEL_POOL if m != env_model]
             if messages is None:
                 messages = [
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt}
                 ]
             return await asyncio.wait_for(
-                _call_openrouter(messages, model_name, temperature, max_tokens=1024, use_reasoning=False),
-                timeout=30.0
+                _call_openrouter(messages, pool[0], temperature, max_tokens=4096, use_reasoning=False, model_pool=pool),
+                timeout=60.0
             )
         else:
-            # Fallback to the standard reasoning model path if no OpenRouter key
             return await ask_llm(prompt=prompt, system=system, temperature=temperature, messages=messages)
     except Exception as e:
         from src.logger import stream_log
         await stream_log(f"\n[LLM Fast Error] Fast model failed: {e}")
         raise e
+
 
 async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, pydantic_model=None, max_retries: int = 3):
     """
@@ -400,6 +464,21 @@ async def init_browser(url_or_html: str, is_html: bool = False):
         
     context: BrowserContext = await _browser.new_context()
     page: Page = await context.new_page()
+
+    # Block tracking/analytics scripts to speed up loading and prevent noise
+    async def block_trackers(route):
+        url = route.request.url.lower()
+        blocked_domains = [
+            "google-analytics.com", "googletagmanager.com", "clarity.ms",
+            "hotjar.com", "mixpanel.com", "segment.com", "facebook.net/en_us/fbevents.js",
+            "doubleclick.net", "sentry.io"
+        ]
+        if any(domain in url for domain in blocked_domains):
+            await route.abort()
+        else:
+            await route.continue_()
+
+    await page.route("**/*", block_trackers)
 
     # Native Playwright event listeners for error/network capture
     # Suppress native website console errors (e.g. Google Analytics CSP blocks) to reduce terminal noise

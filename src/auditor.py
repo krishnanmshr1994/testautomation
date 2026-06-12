@@ -42,13 +42,18 @@ async def perform_static_audit(page: Page) -> StaticAuditResult:
     all_vulnerabilities = []
 
     async def run_audit_pass(pass_prompt: str, name: str) -> list:
-        from src.browser_manager import ask_llm_json_with_healing
+        # Use the fast model directly for audit passes:
+        #   - Avoids the 45s reasoning-model timeout → fast-model fallback chain
+        #   - The fast Llama 70B model reads HTML just as well as the reasoning model
+        #   - Keeps all calls going through the global lock + rate-limiter
+        from src.browser_manager import ask_llm_fast_json_with_healing
         try:
-            result = await ask_llm_json_with_healing(
+            result = await ask_llm_fast_json_with_healing(
                 pass_prompt,
                 system="You are an OWASP-certified penetration tester. Respond only with JSON.",
                 temperature=0.0,
-                pydantic_model=StaticAuditResult
+                pydantic_model=StaticAuditResult,
+                max_retries=2
             )
             return result.vulnerabilities
         except Exception as e:

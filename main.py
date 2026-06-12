@@ -134,10 +134,9 @@ async def run_automation(target: str,
 
     # Parallel Execution Phase
     # Free-tier OpenRouter models have low rate limits (requests/minute).
-    # Running multiple page pipelines simultaneously causes 429 bursts even with retries.
-    # Sequential execution (concurrency=1) is slower but reliable on free-tier quota.
-    # Increase to 2 only if you have a paid OpenRouter plan with higher RPM limits.
-    max_concurrency = 1
+    # We use a model pool rotation in browser_manager to automatically failover on 429s.
+    # This allows us to run multiple pages in parallel without 429 blocking.
+    max_concurrency = 3
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     
