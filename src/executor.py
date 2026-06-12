@@ -13,6 +13,8 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
     Uses LLM to identify selectors, then Playwright to execute actions.
     If live_reporter is provided, records each result immediately to disk.
     """
+    from src.settings_loader import get_timeout_settings
+    timeouts = get_timeout_settings()
     results = []
     
     # Load payloads for deep scanning
@@ -47,7 +49,7 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
         if idx > 0:
             try:
                 await stream_log(f"  [State Reset] Reloading clean page state...")
-                await page.goto(base_url, wait_until="domcontentloaded", timeout=10000)
+                await page.goto(base_url, wait_until="domcontentloaded", timeout=timeouts.get("page_navigation", 10000))
             except Exception:
                 pass
 
@@ -122,23 +124,23 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
 
             # Scroll element into view before interacting
             try:
-                await element.scroll_into_view_if_needed(timeout=3000)
+                await element.scroll_into_view_if_needed(timeout=timeouts.get("element_scroll", 3000))
             except Exception:
                 pass  # Not critical — proceed anyway
 
             try:
                 if action == "fill" and payload:
-                    await element.fill(str(payload), timeout=10000)
+                    await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
                     if intent.is_security_probe:
-                        await element.press("Enter", timeout=5000) # Auto-submit ONLY for security probes
+                        await element.press("Enter", timeout=timeouts.get("element_press", 5000)) # Auto-submit ONLY for security probes
                 elif action == "press":
-                    await element.press(str(payload) if payload else "Enter", timeout=10000)
+                    await element.press(str(payload) if payload else "Enter", timeout=timeouts.get("element_fill", 10000))
                 else:
                     # Try normal click first (respects visibility), fall back to force click
                     try:
-                        await element.click(timeout=10000)
+                        await element.click(timeout=timeouts.get("element_click", 10000))
                     except Exception:
-                        await element.click(force=True, timeout=5000)
+                        await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
 
                 step_result["action_success"] = True
 
@@ -152,10 +154,10 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
 
             # Wait for navigation / DOM to settle after the action
             try:
-                await page.wait_for_load_state("networkidle", timeout=10000)
+                await page.wait_for_load_state("networkidle", timeout=timeouts.get("page_load_state_network_idle", 10000))
             except Exception:
                 try:
-                    await page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    await page.wait_for_load_state("domcontentloaded", timeout=timeouts.get("page_load_state_dom_loaded", 5000))
                 except Exception:
                     pass
 

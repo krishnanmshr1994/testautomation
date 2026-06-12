@@ -2,6 +2,7 @@ import asyncio
 import sys
 from dotenv import load_dotenv
 from src.browser_manager import init_browser, close_browser
+from src.settings_loader import get_concurrency_settings, get_timeout_settings
 from src.auditor import perform_static_audit
 from src.reporter import LiveReporter
 from src.planner import generate_test_plan, analyze_for_required_context
@@ -121,8 +122,10 @@ async def run_automation(target: str,
             signal = f"{NEEDS_INPUT_PREFIX}{context_info['prompt_message']}|{context_info['field_label']}|{context_info['placeholder']}"
             await stream_log(signal)
             await stream_log(f"[Base] Waiting for user input for context...")
+            timeouts = get_timeout_settings()
+            context_timeout = timeouts.get("context_input_timeout", 120.0)
             try:
-                extra_context = await asyncio.wait_for(context_queue.get(), timeout=120)
+                extra_context = await asyncio.wait_for(context_queue.get(), timeout=context_timeout)
             except asyncio.TimeoutError:
                 await stream_log(f"[Base] No context received. Using defaults.")
                 extra_context = ""
@@ -136,7 +139,8 @@ async def run_automation(target: str,
     # Free-tier OpenRouter models have low rate limits (requests/minute).
     # We use a model pool rotation in browser_manager to automatically failover on 429s.
     # This allows us to run multiple pages in parallel without 429 blocking.
-    max_concurrency = 3
+    concurrency_cfg = get_concurrency_settings()
+    max_concurrency = concurrency_cfg.get("max_page_concurrency", 3)
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     

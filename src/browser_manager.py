@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 
 # Use llm_provider for all model and client configuration
 from src.llm_provider import get_llm_client, is_openrouter, get_fast_model, get_reasoning_model
+from src.settings_loader import get_concurrency_settings, get_timeout_settings
 
 # Global references
 _playwright = None
@@ -34,14 +35,15 @@ _pool_index: int = 0            # round-robin cursor (best-effort, no lock neede
 
 # Burst control: Free OpenRouter keys allow max ~2-3 concurrent connections.
 # This prevents all audit passes across all pages from firing on the exact same millisecond.
-_LLM_CONCURRENCY = 3
 _llm_semaphore: asyncio.Semaphore | None = None
 _total_tokens_consumed: int = 0
 
 def _get_llm_semaphore() -> asyncio.Semaphore:
     global _llm_semaphore
     if _llm_semaphore is None:
-        _llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
+        concurrency = get_concurrency_settings()
+        limit = concurrency.get("max_llm_concurrency", 3)
+        _llm_semaphore = asyncio.Semaphore(limit)
     return _llm_semaphore
 
 # Removed get_ai_client as it's now handled by llm_provider
@@ -113,7 +115,10 @@ async def _call_openrouter(
     pool_cursor = 0          # which candidate to try next
     max_attempts = len(candidates) * 4   # allow 4 full cycles
     backoff_factor = 2.0
-    timeout_per_request = 60.0 if use_reasoning else 30.0
+    timeouts = get_timeout_settings()
+    reasoning_req_timeout = timeouts.get("openrouter_reasoning_request_timeout", 60.0)
+    fast_req_timeout = timeouts.get("openrouter_fast_request_timeout", 30.0)
+    timeout_per_request = reasoning_req_timeout if use_reasoning else fast_req_timeout
 
     from src.logger import stream_log
     semaphore = _get_llm_semaphore()
@@ -256,14 +261,17 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                     {"role": "user", "content": prompt}
                 ]
             try:
-                # 45-second hard cap on reasoning model
+                timeouts = get_timeout_settings()
+                reasoning_timeout = timeouts.get("reasoning_llm_timeout", 60.0)
                 return await asyncio.wait_for(
                     _call_openrouter(messages, pool[0], temperature, max_tokens=8192, use_reasoning=True, model_pool=pool),
-                    timeout=60.0
+                    timeout=reasoning_timeout
                 )
             except asyncio.TimeoutError:
                 from src.logger import stream_log
-                await stream_log(f"[Timeout] Reasoning model timed out after 45s. Falling back to fast model...")
+                timeouts = get_timeout_settings()
+                reasoning_timeout = timeouts.get("reasoning_llm_timeout", 60.0)
+                await stream_log(f"[Timeout] Reasoning model timed out after {reasoning_timeout}s. Falling back to fast model...")
                 return await ask_llm_fast(messages=messages, temperature=temperature)
         else:
             # Non-OpenRouter path 
@@ -274,9 +282,11 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt}
                 ]
+            timeouts = get_timeout_settings()
+            non_or_timeout = timeouts.get("non_openrouter_llm_timeout", 120.0)
             response = await client.chat.completions.create(
                 model=model_name, messages=messages,
-                temperature=temperature, max_tokens=4096, timeout=120.0
+                temperature=temperature, max_tokens=4096, timeout=non_or_timeout
             )
             
             if hasattr(response, "usage") and response.usage:
@@ -312,9 +322,11 @@ async def ask_llm_fast(prompt: str = None, system: str = "You are a QA and Secur
                     {"role": "system", "content": system},
                     {"role": "user", "content": prompt}
                 ]
+            timeouts = get_timeout_settings()
+            fast_timeout = timeouts.get("fast_llm_timeout", 60.0)
             return await asyncio.wait_for(
                 _call_openrouter(messages, pool[0], temperature, max_tokens=4096, use_reasoning=False, model_pool=pool),
-                timeout=60.0
+                timeout=fast_timeout
             )
         else:
             return await ask_llm(prompt=prompt, system=system, temperature=temperature, messages=messages)

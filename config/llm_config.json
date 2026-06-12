@@ -1,0 +1,47 @@
+{
+    "active_provider": "mistral",
+    "providers": {
+        "mistral": {
+            "base_url": "https://api.mistral.ai/v1",
+            "env_key": "MISTRAL_API_KEY",
+            "fast_model": "mistral-large-latest",
+            "reasoning_model": "mistral-large-latest"
+        },
+        "openrouter": {
+            "base_url": "https://openrouter.ai/api/v1",
+            "env_key": "OPENROUTER_API_KEY",
+            "fast_model": "meta-llama/llama-3.3-70b-instruct:free",
+            "reasoning_model": "poolside/laguna-m.1:free"
+        },
+        "google": {
+            "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+            "env_key": "GEMINI_API_KEY",
+            "fast_model": "gemini-2.5-flash",
+            "reasoning_model": "gemini-2.5-pro"
+        },
+        "nvidia": {
+            "base_url": "https://integrate.api.nvidia.com/v1",
+            "env_key": "NVIDIA_API_KEY",
+            "fast_model": "meta/llama-3.3-70b-instruct",
+            "reasoning_model": "meta/llama-3.3-70b-instruct"
+        },
+        "groq": {
+            "base_url": "https://api.groq.com/openai/v1",
+            "env_key": "GROQ_API_KEY",
+            "fast_model": "llama-3.3-70b-versatile",
+            "reasoning_model": "llama-3.3-70b-versatile"
+        },
+        "github": {
+            "base_url": "https://models.inference.ai.azure.com",
+            "env_key": "GITHUB_TOKEN",
+            "fast_model": "gpt-4o-mini",
+            "reasoning_model": "gpt-4o"
+        },
+        "huggingface": {
+            "base_url": "https://api-inference.huggingface.co/v1/",
+            "env_key": "HF_TOKEN",
+            "fast_model": "Qwen/Qwen2.5-72B-Instruct",
+            "reasoning_model": "Qwen/Qwen2.5-72B-Instruct"
+        }
+    }
+}
