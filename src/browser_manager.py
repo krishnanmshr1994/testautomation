@@ -41,6 +41,7 @@ _pool_index: int = 0            # round-robin cursor (best-effort, no lock neede
 # This prevents all audit passes across all pages from firing on the exact same millisecond.
 _LLM_CONCURRENCY = 3
 _llm_semaphore: asyncio.Semaphore | None = None
+_total_tokens_consumed: int = 0
 
 def _get_llm_semaphore() -> asyncio.Semaphore:
     global _llm_semaphore
@@ -254,6 +255,15 @@ async def _call_openrouter(
             message_data = data["choices"][0]["message"]
             content = message_data.get("content") or ""
             reasoning_details = message_data.get("reasoning_details")
+
+            # Token tracking
+            usage = data.get("usage", {})
+            total_tokens = usage.get("total_tokens", 0)
+            if total_tokens > 0:
+                global _total_tokens_consumed
+                _total_tokens_consumed += total_tokens
+                await stream_log(f"[Token Tracker] Model '{current_model}' consumed {total_tokens:,} tokens. Session total: {_total_tokens_consumed:,}")
+
             return content, reasoning_details
 
         except httpx.RequestError as req_err:
@@ -316,6 +326,15 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 model=model_name, messages=messages,
                 temperature=temperature, top_p=0.7, max_tokens=4096, timeout=120.0
             )
+            
+            if hasattr(response, "usage") and response.usage:
+                total_tokens = getattr(response.usage, "total_tokens", 0)
+                if total_tokens > 0:
+                    global _total_tokens_consumed
+                    _total_tokens_consumed += total_tokens
+                    from src.logger import stream_log
+                    await stream_log(f"[Token Tracker] Model '{model_name}' consumed {total_tokens:,} tokens. Session total: {_total_tokens_consumed:,}")
+
             return response.choices[0].message.content or "", None
     except asyncio.TimeoutError:
         raise
