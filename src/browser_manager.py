@@ -46,6 +46,26 @@ def _get_llm_semaphore() -> asyncio.Semaphore:
         _llm_semaphore = asyncio.Semaphore(limit)
     return _llm_semaphore
 
+import time
+
+_last_llm_request_time: float = 0.0
+_rate_limit_lock = asyncio.Lock()
+
+async def _throttle_llm_request():
+    global _last_llm_request_time
+    concurrency_cfg = get_concurrency_settings()
+    delay = concurrency_cfg.get("min_llm_request_delay", 1.0)
+    if delay <= 0:
+        return
+    
+    async with _rate_limit_lock:
+        now = time.time()
+        elapsed = now - _last_llm_request_time
+        if elapsed < delay:
+            sleep_time = delay - elapsed
+            await asyncio.sleep(sleep_time)
+        _last_llm_request_time = time.time()
+
 # Removed get_ai_client as it's now handled by llm_provider
 async def distill_dom(page) -> str:
     """
@@ -138,6 +158,7 @@ async def _call_openrouter(
         try:
             # Prevent "thundering herd" bursts across all pages
             async with semaphore:
+                await _throttle_llm_request()
                 async with httpx.AsyncClient(timeout=timeout_per_request) as client:
                     response = await client.post(
                         "https://openrouter.ai/api/v1/chat/completions",
@@ -288,14 +309,17 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             max_attempts = 5
             backoff_factor = 2.0
             from src.logger import stream_log
+            semaphore = _get_llm_semaphore()
             
             for attempt in range(max_attempts):
                 try:
-                    response = await client.chat.completions.create(
-                        model=model_name, messages=messages,
-                        temperature=temperature, max_tokens=4096, timeout=non_or_timeout,
-                        top_p=1.0
-                    )
+                    async with semaphore:
+                        await _throttle_llm_request()
+                        response = await client.chat.completions.create(
+                            model=model_name, messages=messages,
+                            temperature=temperature, max_tokens=4096, timeout=non_or_timeout,
+                            top_p=1.0
+                        )
                     
                     if hasattr(response, "usage") and response.usage:
                         total_tokens = getattr(response.usage, "total_tokens", 0)
