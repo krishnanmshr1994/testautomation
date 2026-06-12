@@ -284,20 +284,44 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 ]
             timeouts = get_timeout_settings()
             non_or_timeout = timeouts.get("non_openrouter_llm_timeout", 120.0)
-            response = await client.chat.completions.create(
-                model=model_name, messages=messages,
-                temperature=temperature, max_tokens=4096, timeout=non_or_timeout
-            )
             
-            if hasattr(response, "usage") and response.usage:
-                total_tokens = getattr(response.usage, "total_tokens", 0)
-                if total_tokens > 0:
-                    global _total_tokens_consumed
-                    _total_tokens_consumed += total_tokens
-                    from src.logger import stream_log
-                    await stream_log(f"[Token Tracker] Model '{model_name}' consumed {total_tokens:,} tokens. Session total: {_total_tokens_consumed:,}")
+            max_attempts = 5
+            backoff_factor = 2.0
+            from src.logger import stream_log
+            
+            for attempt in range(max_attempts):
+                try:
+                    response = await client.chat.completions.create(
+                        model=model_name, messages=messages,
+                        temperature=temperature, max_tokens=4096, timeout=non_or_timeout,
+                        top_p=1.0
+                    )
+                    
+                    if hasattr(response, "usage") and response.usage:
+                        total_tokens = getattr(response.usage, "total_tokens", 0)
+                        if total_tokens > 0:
+                            global _total_tokens_consumed
+                            _total_tokens_consumed += total_tokens
+                            await stream_log(f"[Token Tracker] Model '{model_name}' consumed {total_tokens:,} tokens. Session total: {_total_tokens_consumed:,}")
 
-            return response.choices[0].message.content or "", None
+                    return response.choices[0].message.content or "", None
+
+                except Exception as e:
+                    is_rate_limit = False
+                    err_str = str(e).lower()
+                    if "429" in err_str or "rate limit" in err_str or "too many requests" in err_str:
+                        is_rate_limit = True
+                    
+                    if is_rate_limit and attempt < max_attempts - 1:
+                        sleep_time = backoff_factor * (2 ** attempt)
+                        await stream_log(
+                            f"[Rate Limit] 429 for '{model_name}'. "
+                            f"Retrying in {sleep_time:.1f}s (attempt {attempt+1}/{max_attempts})..."
+                        )
+                        await asyncio.sleep(sleep_time)
+                        continue
+                    else:
+                        raise e
     except asyncio.TimeoutError:
         raise
     except Exception as e:
