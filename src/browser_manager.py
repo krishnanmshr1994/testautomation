@@ -16,6 +16,20 @@ _FAST_MODEL_DEFAULT = "meta-llama/llama-3.3-70b-instruct:free"
 _playwright = None
 _browser: Browser = None
 
+# Global LLM concurrency throttle.
+# All OpenRouter calls (reasoning + fast, across all parallel pages and audit passes)
+# must acquire this semaphore before firing. This prevents thundering-herd 429s.
+# Value: max simultaneous in-flight API requests to OpenRouter.
+_LLM_CONCURRENCY = 2
+_llm_semaphore: asyncio.Semaphore | None = None
+
+def _get_llm_semaphore() -> asyncio.Semaphore:
+    """Lazily initialise the global semaphore inside the running event loop."""
+    global _llm_semaphore
+    if _llm_semaphore is None:
+        _llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
+    return _llm_semaphore
+
 def get_ai_client() -> AsyncOpenAI:
     if os.getenv("OPENROUTER_API_KEY"):
         return AsyncOpenAI(
@@ -120,74 +134,78 @@ async def _call_openrouter(messages: list, model: str, temperature: float, max_t
     backoff_factor = 2.0
     
     from src.logger import stream_log
+    semaphore = _get_llm_semaphore()
     
     for attempt in range(max_attempts):
-        try:
-            async with httpx.AsyncClient(timeout=timeout_per_request) as client:
-                response = await client.post(
-                    "https://openrouter.ai/api/v1/chat/completions",
-                    headers=headers,
-                    json=payload
-                )
-                
-                # Check for rate limit 429
-                if response.status_code == 429:
-                    retry_after = response.headers.get("Retry-After")
-                    try:
-                        sleep_time = float(retry_after) if retry_after else backoff_factor * (2 ** attempt)
-                    except ValueError:
-                        sleep_time = backoff_factor * (2 ** attempt)
-                    
-                    await stream_log(
-                        f"[Rate Limit] OpenRouter 429 Too Many Requests for model '{model}'. "
-                        f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-                    )
-                    await asyncio.sleep(sleep_time)
-                    continue
-                
-                # Check for server errors
-                if response.status_code in (502, 503, 504):
-                    sleep_time = backoff_factor * (2 ** attempt)
-                    await stream_log(
-                        f"[Server Error] OpenRouter returned {response.status_code} for model '{model}'. "
-                        f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-                    )
-                    await asyncio.sleep(sleep_time)
-                    continue
+        # Acquire global throttle before every attempt to cap concurrent API calls
+        async with semaphore:
+          try:
+              async with httpx.AsyncClient(timeout=timeout_per_request) as client:
+                  response = await client.post(
+                      "https://openrouter.ai/api/v1/chat/completions",
+                      headers=headers,
+                      json=payload
+                  )
+              
+              # Check for rate limit 429
+              if response.status_code == 429:
+                  retry_after = response.headers.get("Retry-After")
+                  try:
+                      sleep_time = float(retry_after) if retry_after else backoff_factor * (2 ** attempt)
+                  except ValueError:
+                      sleep_time = backoff_factor * (2 ** attempt)
+                  
+                  await stream_log(
+                      f"[Rate Limit] OpenRouter 429 for model '{model}'. "
+                      f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
+                  )
+                  # Release semaphore while sleeping so other callers aren't blocked
+                  await asyncio.sleep(sleep_time)
+                  continue
+              
+              # Check for server errors
+              if response.status_code in (502, 503, 504):
+                  sleep_time = backoff_factor * (2 ** attempt)
+                  await stream_log(
+                      f"[Server Error] OpenRouter returned {response.status_code} for model '{model}'. "
+                      f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
+                  )
+                  await asyncio.sleep(sleep_time)
+                  continue
 
-                response.raise_for_status()
-                data = response.json()
-                
-                # Check if OpenRouter returned an embedded error inside a 200 OK response
-                if "choices" not in data or not data["choices"]:
-                    if "error" in data:
-                        err_msg = data["error"].get("message", "Unknown OpenRouter API error")
-                        code = data["error"].get("code")
-                        if code == 429 or "rate limit" in err_msg.lower() or "too many requests" in err_msg.lower():
-                            sleep_time = backoff_factor * (2 ** attempt)
-                            await stream_log(
-                                f"[Rate Limit] OpenRouter API error '{err_msg}'. "
-                                f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-                            )
-                            await asyncio.sleep(sleep_time)
-                            continue
-                        raise ValueError(f"OpenRouter Error: {err_msg}")
-                    raise ValueError(f"Unexpected OpenRouter response format: {data}")
-                
-                message_data = data["choices"][0]["message"]
-                content = message_data.get("content") or ""
-                reasoning_details = message_data.get("reasoning_details")
-                return content, reasoning_details
+              response.raise_for_status()
+              data = response.json()
+              
+              # Check if OpenRouter returned an embedded error inside a 200 OK response
+              if "choices" not in data or not data["choices"]:
+                  if "error" in data:
+                      err_msg = data["error"].get("message", "Unknown OpenRouter API error")
+                      code = data["error"].get("code")
+                      if code == 429 or "rate limit" in err_msg.lower() or "too many requests" in err_msg.lower():
+                          sleep_time = backoff_factor * (2 ** attempt)
+                          await stream_log(
+                              f"[Rate Limit] OpenRouter inline error '{err_msg}'. "
+                              f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
+                          )
+                          await asyncio.sleep(sleep_time)
+                          continue
+                      raise ValueError(f"OpenRouter Error: {err_msg}")
+                  raise ValueError(f"Unexpected OpenRouter response format: {data}")
+              
+              message_data = data["choices"][0]["message"]
+              content = message_data.get("content") or ""
+              reasoning_details = message_data.get("reasoning_details")
+              return content, reasoning_details
 
-        except httpx.RequestError as req_err:
-            # Handle client-side network errors, connection timeouts, etc.
-            sleep_time = backoff_factor * (2 ** attempt)
-            await stream_log(
-                f"[Network Error] {type(req_err).__name__} for model '{model}': {req_err}. "
-                f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
-            )
-            await asyncio.sleep(sleep_time)
-            continue
+          except httpx.RequestError as req_err:
+              # Handle client-side network errors, connection timeouts, etc.
+              sleep_time = backoff_factor * (2 ** attempt)
+              await stream_log(
+                  f"[Network Error] {type(req_err).__name__} for model '{model}': {req_err}. "
+                  f"Retrying in {sleep_time:.1f}s (Attempt {attempt+1}/{max_attempts})..."
+              )
+              await asyncio.sleep(sleep_time)
+              continue
             
     # If we get here, all attempts failed
     raise RuntimeError(f"Failed to call OpenRouter model '{model}' after {max_attempts} attempts.")

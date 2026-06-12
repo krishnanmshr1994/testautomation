@@ -133,8 +133,11 @@ async def run_automation(target: str,
     await discovery_page.context.close()
 
     # Parallel Execution Phase
-    # Free tier APIs (Gemini, NVIDIA, Groq) cannot handle 10 massive HTML payloads concurrently without throwing Rate Limits or Timeouts.
-    max_concurrency = 3  # OpenRouter handles 3 parallel streams without rate-limiting
+    # Free-tier OpenRouter models have low rate limits (requests/minute).
+    # Running multiple page pipelines simultaneously causes 429 bursts even with retries.
+    # Sequential execution (concurrency=1) is slower but reliable on free-tier quota.
+    # Increase to 2 only if you have a paid OpenRouter plan with higher RPM limits.
+    max_concurrency = 1
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     

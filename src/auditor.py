@@ -55,10 +55,12 @@ async def perform_static_audit(page: Page) -> StaticAuditResult:
             await stream_log(f"[Warning] Could not parse audit result for {name} after retries. Error: {e}")
             return []
 
-    tasks = []
+    # Run passes SEQUENTIALLY to avoid bursting concurrent API calls that trigger 429s.
+    # The global LLM semaphore in browser_manager provides additional protection if
+    # other coroutines (planner, executor) are running in parallel with the auditor.
     for pass_key, pass_info in rules_data.items():
         pass_name = pass_info.get("name", pass_key)
-        await stream_log(f"  → Queueing Pass: {pass_name}")
+        await stream_log(f"  → Running Pass: {pass_name}")
         
         rules_list = pass_info.get("rules", [])
         rules_text = "\n".join([f"- {r['category']}: {r['description']}" for r in rules_list])
@@ -103,12 +105,8 @@ Respond ONLY with valid JSON in this exact format:
 
 If truly nothing is found for these categories, return: {{"vulnerabilities": []}}
 """
-        tasks.append(run_audit_pass(prompt, pass_name))
-
-    import asyncio
-    results = await asyncio.gather(*tasks)
-    for res in results:
-        all_vulnerabilities.extend(res)
+        pass_vulns = await run_audit_pass(prompt, pass_name)
+        all_vulnerabilities.extend(pass_vulns)
 
     final_result = StaticAuditResult(vulnerabilities=all_vulnerabilities)
     await stream_log(f"Audit complete. Found {len(final_result.vulnerabilities)} vulnerability(ies).")
