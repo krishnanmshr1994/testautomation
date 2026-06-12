@@ -163,3 +163,15 @@ Interactive HTML report viewer in the dashboard supports filter pills (All/Pass/
 ## 26. API Client & Error Resiliency (Rate Limits & Congestion)
 **Decision:** Implement robust HTTP status checking and client-side exponential backoff retries (up to 5 attempts) directly in the network utility (`_call_openrouter`). Specifically handle HTTP `429 Too Many Requests`, server gateway errors (`502`, `503`, `504`), connection failures, and inline OpenRouter JSON error responses.
 **Rationale:** With parallel execution active, concurrent calls easily trigger OpenRouter's rate limits. Handling 429s and server congestion with self-healing backoff retries prevents cascading failures across parallel pipelines.
+---
+
+## 27. Free-Tier Model Pool Rotation
+**Decision:** Implement a multi-model failover pool for both Reasoning and Fast models when using the OpenRouter API. If a 429 Too Many Requests is encountered on a specific model, instantly rotate to the next verified 100B+ parameter model in the pool (e.g. rotating from laguna to nemotron-super-120b). If the entire API key hits a rate limit, the process implements an aggregate backoff sleep before retrying.
+**Rationale:** OpenRouter free tier imposes strict account-wide and model-specific rate limits (e.g. 20 requests per minute). Hard-coding a single model for concurrent pages instantly triggers 429s. Rotating through a pool of verified models allows full parallel execution without blocking.
+
+---
+
+## 28. Playwright Network Interception for Trackers
+**Decision:** Inject an aggressive page.route network interceptor in init_browser() that instantly aborts requests matching common tracking and analytics domains (e.g., Google Analytics, Hotjar, Sentry, Facebook Pixel).
+**Rationale:** Analytics scripts unnecessarily slow down Playwright page load times (
+etworkidle), clutter terminal console logs with CSP errors, and pollute the target application's analytics dashboards with bot traffic. Aborting these connections solves all three issues.
