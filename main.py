@@ -134,7 +134,7 @@ async def run_automation(target: str,
 
     # Parallel Execution Phase
     # Free tier APIs (Gemini, NVIDIA, Groq) cannot handle 10 massive HTML payloads concurrently without throwing Rate Limits or Timeouts.
-    max_concurrency = 2
+    max_concurrency = 3  # OpenRouter handles 3 parallel streams without rate-limiting
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     

@@ -2,7 +2,7 @@ import json
 import re
 from playwright.async_api import Page
 from src.planner import TestPlan
-from src.browser_manager import ask_llm, distill_dom
+from src.browser_manager import ask_llm, distill_dom, ask_llm_fast_json_with_healing
 from src.logger import stream_log
 
 import os
@@ -25,6 +25,20 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
     # Capture the starting URL to reset state between independent tests
     base_url = page.url
 
+    # --- DOM Snapshot Cache ---
+    # Distill the DOM once per page state, reuse across steps on the same URL.
+    # Only re-distill after a page navigation (URL change).
+    _cached_url: str = ""
+    _cached_dom: str = ""
+
+    async def get_dom_snapshot() -> str:
+        nonlocal _cached_url, _cached_dom
+        current_url = page.url
+        if current_url != _cached_url:
+            _cached_dom = await distill_dom(page)
+            _cached_url = current_url
+        return _cached_dom
+
     for idx, intent in enumerate(plan.intents):
         await stream_log(f"\n--- Step {idx + 1}/{len(plan.intents)}: {intent.description} ---")
 
@@ -37,10 +51,10 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
             except Exception:
                 pass
 
-        # Ask LLM to identify the CSS selector for the intended action
-        dom_snapshot = await distill_dom(page)
-        selector_prompt = f"""
-Given this distilled HTML snippet:
+        # Ask fast LLM to identify the CSS selector for the intended action
+        # DOM snapshot is cached — only re-distilled when the page URL changes
+        dom_snapshot = await get_dom_snapshot()
+        selector_prompt = f"""Given this distilled HTML snippet:
 {dom_snapshot}
 
 For the following action: "{intent.description}"
@@ -50,9 +64,8 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
 
 If you cannot identify the element, respond with: {{"selector": null, "action": null}}
 """
-        from src.browser_manager import ask_llm_json_with_healing
         try:
-            action_data = await ask_llm_json_with_healing(
+            action_data = await ask_llm_fast_json_with_healing(
                 selector_prompt,
                 system="You are a Playwright automation expert. Respond only with JSON.",
                 max_retries=2
@@ -181,9 +194,8 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
                 step_result["verification_success"] = True
                 step_result["details"] = f"URL changed to '{current_url}' which matches expected outcome."
             else:
-                # Full LLM verification (with URL context)
-                verify_prompt = f"""
-You are a QA verification expert. A browser automation just performed an action and you must decide if the expected outcome occurred.
+                # Full LLM verification — use the fast model (speed > depth for pass/fail)
+                verify_prompt = f"""You are a QA verification expert. A browser automation just performed an action and you must decide if the expected outcome occurred.
 
 Action performed : "{intent.description}"
 Current page URL : {current_url}
@@ -197,9 +209,9 @@ IMPORTANT RULES:
 2. For security probes (like XSS/SQLi), if the payload is reflected unsanitized or causes an error trace, mark it as FAILED (vulnerable). If it is blocked or sanitized, mark it as SUCCESS (secure).
 3. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
 """
-                from src.browser_manager import ask_llm_json_with_healing
+                from src.browser_manager import ask_llm_fast_json_with_healing
                 try:
-                    verify_data = await ask_llm_json_with_healing(
+                    verify_data = await ask_llm_fast_json_with_healing(
                         verify_prompt,
                         system="You are a QA verification expert. Respond only with JSON.",
                         temperature=0.0,
