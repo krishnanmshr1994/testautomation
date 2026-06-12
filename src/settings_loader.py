@@ -9,7 +9,11 @@ def load_settings() -> dict:
     if _settings_cache is None:
         try:
             with open(_SETTINGS_PATH, "r", encoding="utf-8") as f:
-                _settings_cache = json.load(f)
+                raw_content = f.read()
+            import re
+            # Strip lines starting with optional whitespace and // or #
+            cleaned_content = re.sub(r'^\s*(?://|#).*$', '', raw_content, flags=re.MULTILINE)
+            _settings_cache = json.loads(cleaned_content)
         except Exception:
             # Safe fallbacks reflecting original hardcoded values
             _settings_cache = {
