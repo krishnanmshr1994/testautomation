@@ -1,7 +1,7 @@
 {
   "concurrency": {
-    "max_page_concurrency": 3,
-    "max_llm_concurrency": 3
+    "max_page_concurrency": 5,
+    "max_llm_concurrency": 1
   },
   "timeouts": {
     "page_navigation": 10000,
