@@ -56,6 +56,11 @@ def get_ai_client() -> AsyncOpenAI:
             base_url="https://openrouter.ai/api/v1",
             api_key=os.getenv("OPENROUTER_API_KEY"),
         )
+    if os.getenv("MISTRAL_API_KEY"):
+        return AsyncOpenAI(
+            base_url="https://api.mistral.ai/v1",
+            api_key=os.getenv("MISTRAL_API_KEY"),
+        )
     if os.getenv("NVIDIA_API_KEY"):
         return AsyncOpenAI(
             base_url="https://integrate.api.nvidia.com/v1",
@@ -308,11 +313,12 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 await stream_log(f"[Timeout] Reasoning model timed out after 45s. Falling back to fast model...")
                 return await ask_llm_fast(messages=messages, temperature=temperature)
         else:
-            # Non-OpenRouter path (Gemini, Groq, etc.)
+            # Non-OpenRouter path (Mistral, Gemini, Groq, etc.)
             client = get_ai_client()
-            if os.getenv("NVIDIA_API_KEY"):    default_model = "meta/llama-3.3-70b-instruct"
-            elif os.getenv("GEMINI_API_KEY"): default_model = "gemini-2.5-flash"
-            elif os.getenv("GROQ_API_KEY"):   default_model = "llama-3.3-70b-versatile"
+            if os.getenv("MISTRAL_API_KEY"):   default_model = "mistral-large-latest"
+            elif os.getenv("NVIDIA_API_KEY"):  default_model = "meta/llama-3.3-70b-instruct"
+            elif os.getenv("GEMINI_API_KEY"):  default_model = "gemini-2.5-flash"
+            elif os.getenv("GROQ_API_KEY"):    default_model = "llama-3.3-70b-versatile"
             elif os.getenv("HF_TOKEN"):        default_model = "Qwen/Qwen2.5-72B-Instruct"
             elif os.getenv("GITHUB_TOKEN"):    default_model = "gpt-4o-mini"
             else:                              default_model = "meta/llama-3.3-70b-instruct"
