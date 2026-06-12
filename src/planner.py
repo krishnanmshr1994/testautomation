@@ -151,7 +151,32 @@ async def generate_test_plan(page: Page,
         return elements;
     }""")
 
-    await stream_log(f"Found {len(dom_summary)} interactive elements. Generating test plan...")
+    total_found = len(dom_summary)
+
+    # De-duplicate and filter blanks, then cap at 80 elements to prevent token overflow
+    # on large pages (300+ elements). Priority: inputs/selects/textareas > buttons > links > forms
+    MAX_ELEMENTS = 80
+    def element_priority(el):
+        tag = el.get('tag', '')
+        if tag in ('input', 'select', 'textarea'): return 0
+        if tag == 'button': return 1
+        if tag == 'a': return 2
+        return 3
+
+    seen = set()
+    deduped = []
+    for el in sorted(dom_summary, key=element_priority):
+        key = (el.get('tag'), el.get('type'), el.get('name'), el.get('id'), el.get('text'), el.get('href'))
+        if key not in seen and any(v for v in el.values() if v):
+            seen.add(key)
+            deduped.append(el)
+
+    if len(deduped) > MAX_ELEMENTS:
+        await stream_log(f"Found {total_found} interactive elements (capped to {MAX_ELEMENTS} most relevant). Generating test plan...")
+        dom_summary = deduped[:MAX_ELEMENTS]
+    else:
+        await stream_log(f"Found {total_found} interactive elements. Generating test plan...")
+        dom_summary = deduped
 
     prompt = f"""
 You are a QA and Security testing expert. Based on the following page elements extracted from a website, generate a comprehensive test plan.

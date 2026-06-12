@@ -126,7 +126,7 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 "messages": messages,
                 "temperature": temperature,
                 "top_p": 0.7,
-                "max_tokens": 4096,
+                "max_tokens": 8192,
                 "reasoning": {"enabled": True}
             }
             async with httpx.AsyncClient(timeout=120.0) as httpx_client:
