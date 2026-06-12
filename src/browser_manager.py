@@ -4,13 +4,8 @@ import httpx
 from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 from openai import AsyncOpenAI
 
-# Reasoning model: used for audit, planning, context analysis
-# Set MODEL_NAME in .env to override
-_REASONING_MODEL_DEFAULT = "poolside/laguna-m.1:free"
-
-# Fast model: used for selector identification and verification in the execution loop
-# Set FAST_MODEL_NAME in .env to override
-_FAST_MODEL_DEFAULT = "meta-llama/llama-3.3-70b-instruct:free"
+# Use llm_provider for all model and client configuration
+from src.llm_provider import get_llm_client, is_openrouter, get_fast_model, get_reasoning_model
 
 # Global references
 _playwright = None
@@ -49,49 +44,7 @@ def _get_llm_semaphore() -> asyncio.Semaphore:
         _llm_semaphore = asyncio.Semaphore(_LLM_CONCURRENCY)
     return _llm_semaphore
 
-
-def get_ai_client() -> AsyncOpenAI:
-    if os.getenv("OPENROUTER_API_KEY"):
-        return AsyncOpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=os.getenv("OPENROUTER_API_KEY"),
-        )
-    if os.getenv("MISTRAL_API_KEY"):
-        return AsyncOpenAI(
-            base_url="https://api.mistral.ai/v1",
-            api_key=os.getenv("MISTRAL_API_KEY"),
-        )
-    if os.getenv("NVIDIA_API_KEY"):
-        return AsyncOpenAI(
-            base_url="https://integrate.api.nvidia.com/v1",
-            api_key=os.getenv("NVIDIA_API_KEY"),
-        )
-    if os.getenv("GEMINI_API_KEY"):
-        return AsyncOpenAI(
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            api_key=os.getenv("GEMINI_API_KEY"),
-        )
-    if os.getenv("GROQ_API_KEY"):
-        return AsyncOpenAI(
-            base_url="https://api.groq.com/openai/v1",
-            api_key=os.getenv("GROQ_API_KEY"),
-        )
-    if os.getenv("HF_TOKEN"):
-        return AsyncOpenAI(
-            base_url="https://api-inference.huggingface.co/v1/",
-            api_key=os.getenv("HF_TOKEN"),
-        )
-    if os.getenv("GITHUB_TOKEN"):
-        return AsyncOpenAI(
-            base_url="https://models.inference.ai.azure.com",
-            api_key=os.getenv("GITHUB_TOKEN"),
-        )
-    # Fallback
-    return AsyncOpenAI(
-        base_url="https://api.openai.com/v1",
-        api_key="dummy_key",
-    )
-
+# Removed get_ai_client as it's now handled by llm_provider
 async def distill_dom(page) -> str:
     """
     Executes a JavaScript minifier in the browser to strip out non-semantic
@@ -293,9 +246,9 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
     Automatically falls back to the fast model on timeout.
     """
     try:
-        if os.getenv("OPENROUTER_API_KEY"):
+        if is_openrouter():
             # Build reasoning pool: env override as first choice, then remaining defaults
-            env_model = os.getenv("MODEL_NAME", _REASONING_MODEL_DEFAULT)
+            env_model = get_reasoning_model()
             pool = [env_model] + [m for m in _REASONING_MODEL_POOL if m != env_model]
             if messages is None:
                 messages = [
@@ -313,16 +266,9 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 await stream_log(f"[Timeout] Reasoning model timed out after 45s. Falling back to fast model...")
                 return await ask_llm_fast(messages=messages, temperature=temperature)
         else:
-            # Non-OpenRouter path (Mistral, Gemini, Groq, etc.)
-            client = get_ai_client()
-            if os.getenv("MISTRAL_API_KEY"):   default_model = "mistral-large-latest"
-            elif os.getenv("NVIDIA_API_KEY"):  default_model = "meta/llama-3.3-70b-instruct"
-            elif os.getenv("GEMINI_API_KEY"):  default_model = "gemini-2.5-flash"
-            elif os.getenv("GROQ_API_KEY"):    default_model = "llama-3.3-70b-versatile"
-            elif os.getenv("HF_TOKEN"):        default_model = "Qwen/Qwen2.5-72B-Instruct"
-            elif os.getenv("GITHUB_TOKEN"):    default_model = "gpt-4o-mini"
-            else:                              default_model = "meta/llama-3.3-70b-instruct"
-            model_name = os.getenv("MODEL_NAME", default_model)
+            # Non-OpenRouter path 
+            client = get_llm_client()
+            model_name = get_reasoning_model()
             if messages is None:
                 messages = [
                     {"role": "system", "content": system},
@@ -330,7 +276,7 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 ]
             response = await client.chat.completions.create(
                 model=model_name, messages=messages,
-                temperature=temperature, top_p=0.7, max_tokens=4096, timeout=120.0
+                temperature=temperature, max_tokens=4096, timeout=120.0
             )
             
             if hasattr(response, "usage") and response.usage:
@@ -357,9 +303,9 @@ async def ask_llm_fast(prompt: str = None, system: str = "You are a QA and Secur
     Used for: CSS selector identification, pass/fail verification, audit passes.
     """
     try:
-        if os.getenv("OPENROUTER_API_KEY"):
+        if is_openrouter():
             # Build pool: env override as first choice, then remaining defaults
-            env_model = os.getenv("FAST_MODEL_NAME", _FAST_MODEL_DEFAULT)
+            env_model = get_fast_model()
             pool = [env_model] + [m for m in _FAST_MODEL_POOL if m != env_model]
             if messages is None:
                 messages = [
