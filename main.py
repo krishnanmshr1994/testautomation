@@ -45,9 +45,11 @@ async def run_single_page(url: str,
                           run_probes: bool,
                           context_queue: asyncio.Queue,
                           semaphore: asyncio.Semaphore,
-                          run_dir: str) -> dict:
+                          run_dir: str,
+                          page_index: int = 1,
+                          total_pages: int = 1) -> dict:
     async with semaphore:
-        await stream_log(f"\n[{url}] Starting automation")
+        await stream_log(f"\n[{url}] Starting automation (Page {page_index}/{total_pages})")
 
         try:
             page = await init_browser(url, is_html)
@@ -144,11 +146,13 @@ async def run_automation(target: str,
     semaphore = asyncio.Semaphore(max_concurrency)
     tasks = []
     
-    for url in urls_to_test:
+    total_pages = len(urls_to_test)
+    for idx, url in enumerate(urls_to_test):
         tasks.append(run_single_page(
             url, is_html, extra_context, custom_tests_raw, 
             run_audit, run_functional, run_probes, 
-            context_queue, semaphore, run_dir
+            context_queue, semaphore, run_dir,
+            page_index=idx + 1, total_pages=total_pages
         ))
         
     results = await asyncio.gather(*tasks, return_exceptions=True)
