@@ -142,6 +142,10 @@ class LiveReporter:
                     f.write(f"         Actual   : {result['details']}\n")
                 if result.get("error"):
                     f.write(f"         Error    : {result['error']}\n")
+                if status in ("FAIL", "ERROR"):
+                    f.write(f"         Steps to Replicate:\n")
+                    f.write(f"           1. Navigate to {self.target_url}\n")
+                    f.write(f"           2. Perform action: {result.get('action_details', 'N/A')}\n")
 
     async def finalize(self) -> dict:
         """
@@ -179,6 +183,10 @@ class LiveReporter:
                         f.write(f"         Actual   : {result['details']}\n")
                     if result.get("error"):
                         f.write(f"         Error    : {result['error']}\n")
+                    if status in ("VULNERABLE", "ERROR"):
+                        f.write(f"         Steps to Replicate:\n")
+                        f.write(f"           1. Navigate to {self.target_url}\n")
+                        f.write(f"           2. Perform action: {result.get('action_details', 'N/A')}\n")
             else:
                 f.write("  No security probe tests were generated.\n")
 

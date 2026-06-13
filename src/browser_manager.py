@@ -148,11 +148,12 @@ async def distill_dom(page) -> str:
             pruneRepeatingSiblings(container, 'option', 4);
         });
 
-        // Also prune repeating anchor tags directly under any container
+        // Also prune repeating anchor tags directly under any container, but be much less aggressive
+        // so we don't hide interactive elements that planner.py expects to find.
         clone.querySelectorAll('*').forEach(parent => {
-            if (parent.children && parent.children.length > 15) {
-                pruneRepeatingSiblings(parent, 'a', 6);
-                pruneRepeatingSiblings(parent, 'div', 6);
+            if (parent.children && parent.children.length > 50) {
+                pruneRepeatingSiblings(parent, 'a', 50);
+                pruneRepeatingSiblings(parent, 'div', 50);
             }
         });
         

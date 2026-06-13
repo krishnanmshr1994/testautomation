@@ -38,27 +38,10 @@ async def analyze_for_required_context(page: Page) -> dict | None:
         return elements;
     }""")
 
-    prompt = f"""
-You are an AI analyzing a webpage to determine if specific user input is necessary before automated testing begins.
-
-Page Elements:
-{json.dumps(dom_summary, indent=2)}
-
-Does this page require specific user input (like login credentials, payment info, OTP, address, etc.) to be properly tested?
-
-If NO user input is needed, return:
-{{"needs_input": false, "prompt_message": null, "field_label": null, "placeholder": null}}
-
-If YES, return:
-{{
-  "needs_input": true,
-  "prompt_message": "<A clear sentence explaining what was detected and why input is needed>",
-  "field_label": "<Short label describing exactly what is needed, e.g. 'Login Credentials', 'Credit Card Details', 'Shipping Address', 'OTP / Verification Code'>",
-  "placeholder": "<Example of what to type, e.g. 'username: admin, password: secret' or 'Card: 4111111111111111, CVV: 123, Exp: 12/26'>"
-}}
-
-Respond ONLY with a valid JSON object.
-"""
+    from src.prompts import PLANNER_CONTEXT_PROMPT
+    prompt = PLANNER_CONTEXT_PROMPT.format(
+        dom_summary_json=json.dumps(dom_summary, indent=2)
+    )
     from src.browser_manager import ask_llm_json_with_healing
     try:
         data = await ask_llm_json_with_healing(prompt, max_retries=2)
@@ -186,36 +169,21 @@ async def generate_test_plan(page: Page,
         await stream_log(f"Found {total_found} interactive elements. Generating test plan...")
         dom_summary = deduped
 
-    prompt = f"""
-You are a QA and Security testing expert. Based on the following page elements extracted from a website, generate a comprehensive test plan.
-
-Page Elements:
-{json.dumps(dom_summary, indent=2)}
-
-Generate a JSON test plan with a list of test intents. Each intent must have:
-- description: A specific natural language instruction of what to do (e.g. "Type 'admin' into the username field")
-- expected_outcome: What should happen after the action
-- is_security_probe: true if this is a security injection test, false otherwise
-- attack_type: If it IS a security probe, specify the attack class (e.g., "XSS", "SQLi", "SSRF", "SSTI", "LFI", "CommandInjection"). Otherwise, leave null.
-- press_enter_after_fill: By default, you MUST set this to false. You are ONLY allowed to set it to true if you are 100% certain that the field is a standalone text input (like a search bar) AND there are absolutely zero actionable buttons (Save, Submit, Search, Go) available on the form. If you are unsure, set it to false.
-
-CRITICAL: DO NOT generate passive security/audit test cases that do not target specific, interactive page elements (such as testing for missing HTTP security headers, clickjacking/X-Frame-Options, SSL certificates, cookies, or port scanning). These passive checks are already handled in a separate static audit phase. Every test intent you generate MUST interact with one of the extracted page elements (e.g., input fields, links, buttons) via click or fill.
-
-Include the following types of tests based on the user's request:
-"""
+    tests_to_run = ""
     if run_functional:
-        prompt += "1. Happy path tests (valid inputs)\n2. Negative tests (invalid/empty inputs)\n"
+        tests_to_run += "1. Happy path tests (valid inputs)\n2. Negative tests (invalid/empty inputs)\n"
     if run_probes:
-        prompt += "3. Security probes: Map vulnerable-looking fields to an appropriate `attack_type`. DO NOT generate the specific payload string (e.g. don't write '<script>'). The executor will dynamically fetch payloads from a deep-scan dataset based on the `attack_type` you assign.\n"
+        tests_to_run += "3. Security probes: Map vulnerable-looking fields to an appropriate `attack_type`. DO NOT generate the specific payload string (e.g. don't write '<script>'). The executor will dynamically fetch payloads from a deep-scan dataset based on the `attack_type` you assign.\n"
 
+    extra_context_instruction = ""
     if extra_context:
-        prompt += f"""
+        extra_context_instruction = f"""
 IMPORTANT — The user has provided the following context/credentials to use in tests:
 {extra_context}
 Use this information for the happy-path tests.
 """
     elif run_functional:
-        prompt += """
+        extra_context_instruction = """
 IMPORTANT — No credentials or context were provided by the user.
 You MUST still generate realistic, concrete test cases using sensible default values appropriate to the detected form type. Examples:
 - Login forms: use username "testuser" and password "TestPass@123"
@@ -226,15 +194,12 @@ You MUST still generate realistic, concrete test cases using sensible default va
 Choose defaults that make sense for the detected context.
 """
 
-    prompt += """
-Respond ONLY with a JSON object in this exact format:
-{
-  "intents": [
-    {"description": "...", "expected_outcome": "...", "is_security_probe": false, "attack_type": null, "press_enter_after_fill": false},
-    {"description": "Inject XSS into search field", "expected_outcome": "Application blocks or sanitizes the payload", "is_security_probe": true, "attack_type": "XSS", "press_enter_after_fill": true}
-  ]
-}
-"""
+    from src.prompts import PLANNER_PLAN_PROMPT_BASE
+    prompt = PLANNER_PLAN_PROMPT_BASE.format(
+        dom_summary_json=json.dumps(dom_summary, indent=2),
+        tests_to_run=tests_to_run,
+        extra_context_instruction=extra_context_instruction
+    )
     from src.browser_manager import ask_llm_json_with_healing
     try:
         ai_plan = await ask_llm_json_with_healing(

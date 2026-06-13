@@ -70,47 +70,11 @@ async def perform_static_audit(page: Page) -> StaticAuditResult:
         rules_list = pass_info.get("rules", [])
         rules_text = "\n".join([f"- {r['category']}: {r['description']}" for r in rules_list])
 
-        prompt = f"""You are a senior penetration tester and OWASP-certified web application security expert.
-Your job is to perform a thorough security audit of the HTML below, focusing specifically on the following categories:
-
-{rules_text}
-
-HTML to analyze:
-{clean_html}
-
-For EVERY issue you find, return a vulnerability object with:
-- title: Short descriptive name
-- description: What the vulnerability is and why it matters
-- severity: "low" | "medium" | "high" | "critical"
-- owasp_category: Most relevant category from the list above
-- cwe_id: Most relevant CWE ID (e.g. "CWE-79")
-- evidence: A single string containing ALL exact HTML snippets or attributes that prove the finding (separate multiple instances with a newline or comma).
-- remediation: One concrete sentence describing the fix
-
-IMPORTANT ENFORCEMENT RULES:
-1. Think like an attacker. Do not skip anything. Be thorough and specific.
-2. If multiple elements share the SAME vulnerability (e.g., 3 identical missing CSRF tokens), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object. You MUST list EVERY SINGLE INSTANCE in the `evidence` field. Do not just list the first one and discard the rest.
-3. Focus ONLY on the categories provided for this pass.
-4. ABSOLUTELY NO THEORETICAL RISKS: You MUST have concrete, visible evidence in the HTML snippet to report a vulnerability. If you cannot point to an exact line or attribute in the HTML, DO NOT report it. Do not say "potential for X exists" or "no explicit evidence found".
-5. ANTI-HALLUCINATION CHECK: Before reporting an issue (like insecure HTTP links), explicitly double-check that the evidence actually violates the rule. Do not report secure links (https://) as insecure.
-
-Respond ONLY with valid JSON in this exact format:
-{{
-  "vulnerabilities": [
-    {{
-      "title": "...",
-      "description": "...",
-      "severity": "...",
-      "owasp_category": "...",
-      "cwe_id": "...",
-      "evidence": "...",
-      "remediation": "..."
-    }}
-  ]
-}}
-
-If truly nothing is found for these categories, return: {{"vulnerabilities": []}}
-"""
+        from src.prompts import AUDITOR_PROMPT
+        prompt = AUDITOR_PROMPT.format(
+            rules_text=rules_text,
+            clean_html=clean_html
+        )
         pass_vulns = await run_audit_pass(prompt, pass_name)
         all_vulnerabilities.extend(pass_vulns)
 

@@ -55,31 +55,54 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
             except Exception:
                 pass
 
-        # Ask fast LLM to identify the CSS selector for the intended action
-        # DOM snapshot is cached — only re-distilled when the page URL changes
-        dom_snapshot = await get_dom_snapshot()
-        selector_prompt = f"""Given this distilled HTML snippet:
-{dom_snapshot}
-
-For the following action: "{intent.description}"
-
-Respond ONLY with a valid JSON object in this exact format (no explanation):
-{{"selector": "<css-selector>", "action": "click|fill"}}
-
-- Use "fill" for text inputs, search boxes, textareas.
-- Use "click" for buttons, links, checkboxes, dropdowns, and everything else.
-- If you cannot identify the element, respond with: {{"selector": null, "action": null}}
-"""
-        try:
-            action_data = await ask_llm_fast_json_with_healing(
-                selector_prompt,
-                system="You are a Playwright automation expert. Respond only with JSON.",
-                max_retries=2
+        from src.prompts import EXECUTOR_SELECTOR_PROMPT, EXECUTOR_VERIFY_PROMPT
+        
+        max_selector_retries = 2
+        element = None
+        selector = None
+        action = None
+        action_data = {}
+        previous_error_context = ""
+        
+        for attempt in range(max_selector_retries + 1):
+            dom_snapshot = await get_dom_snapshot()
+            prompt = EXECUTOR_SELECTOR_PROMPT.format(
+                dom_snapshot=dom_snapshot,
+                intent_description=intent.description,
+                previous_error_context=previous_error_context
             )
-        except Exception as e:
-            action_data = {"selector": None, "error": str(e)}
+            try:
+                action_data = await ask_llm_fast_json_with_healing(
+                    prompt,
+                    system="You are a Playwright automation expert. Respond only with JSON.",
+                    max_retries=2
+                )
+            except Exception as e:
+                action_data = {"selector": None, "error": str(e)}
 
-        if not action_data.get("selector"):
+            selector = action_data.get("selector")
+            action = action_data.get("action", "click")
+
+            if not selector:
+                if attempt < max_selector_retries:
+                    previous_error_context = "PREVIOUS ERROR: You failed to provide a valid selector. Please try a different approach."
+                    continue
+                else:
+                    break
+
+            element = await page.query_selector(selector)
+            if not element:
+                if attempt < max_selector_retries:
+                    previous_error_context = f"PREVIOUS ERROR: The selector '{selector}' was NOT found on the page. Please provide a completely different alternative selector."
+                    # Invalidate dom cache just in case
+                    _cached_url = ""
+                    continue
+                else:
+                    break
+            else:
+                break
+
+        if not selector:
             err_msg = action_data.get("error") or "LLM could not identify element selector."
             await stream_log(f"❌ Skipped: {err_msg}")
             step_result = {
@@ -94,9 +117,6 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
             if live_reporter:
                 await live_reporter.record(intent, step_result)
             continue
-
-        selector = action_data["selector"]
-        action = action_data.get("action", "click")
 
         # Skip already fuzzed targets (Leak 3 Fix)
         if intent.is_security_probe and getattr(intent, "attack_type", None):
@@ -262,21 +282,12 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
                 step_result["verification_success"] = True
                 step_result["details"] = f"URL changed to '{current_url}' which matches expected outcome."
             else:
-                # Full LLM verification — use the fast model (speed > depth for pass/fail)
-                verify_prompt = f"""You are a QA verification expert. A browser automation just performed an action and you must decide if the expected outcome occurred.
-
-Action performed : "{intent.description}"
-Current page URL : {current_url}
-Expected outcome : "{intent.expected_outcome}"
-
-Distilled page HTML:
-{page_text}
-
-IMPORTANT RULES:
-1. If the Current page URL clearly matches the expected outcome, mark it as SUCCESS.
-2. For security probes (like XSS/SQLi), if the payload is reflected unsanitized or causes an error trace, mark it as FAILED (vulnerable). If it is blocked or sanitized, mark it as SUCCESS (secure).
-3. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
-"""
+                verify_prompt = EXECUTOR_VERIFY_PROMPT.format(
+                    intent_description=intent.description,
+                    current_url=current_url,
+                    expected_outcome=intent.expected_outcome,
+                    page_text=page_text
+                )
                 try:
                     verify_data = await ask_llm_fast_json_with_healing(
                         verify_prompt,
