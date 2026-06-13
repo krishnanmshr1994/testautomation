@@ -73,7 +73,7 @@ Page Elements:
 
 Generate a JSON test plan with a list of test intents. Each intent must have:
 - description: A specific natural language instruction of what to do (e.g. "Type 'admin' into the username field")
-- expected_outcome: What should happen after the action
+- expected_outcome: A robust logical assertion of what should happen after the action, accounting for valid alternative states (e.g., "Search results are displayed OR a valid 'no results' message is shown").
 - is_security_probe: true if this is a security injection test, false otherwise
 - attack_type: If it IS a security probe, specify the attack class (e.g., "XSS", "SQLi", "SSRF", "SSTI", "LFI", "CommandInjection"). Otherwise, leave null.
 - press_enter_after_fill: By default, you MUST set this to false. You are ONLY allowed to set it to true if you are 100% certain that the field is a standalone text input (like a search bar) AND there are absolutely zero actionable buttons (Save, Submit, Search, Go) available on the form. If you are unsure, set it to false.
@@ -109,19 +109,43 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
 - If you cannot identify the element, respond with: {{"selector": null, "action": null}}
 """
 
-EXECUTOR_VERIFY_PROMPT = """You are a QA verification expert. A browser automation just performed an action and you must decide if the expected outcome occurred.
+EXECUTOR_VERIFY_PROMPT = """You are a fast QA verification classifier. A browser automation just performed an action. Your job is to classify the post-action state.
 
 Action performed : "{intent_description}"
-Current page URL : {current_url}
+URL BEFORE action: {previous_url}
+URL AFTER action : {current_url}
 Expected outcome : "{expected_outcome}"
 
 Distilled page HTML:
 {page_text}
 
-IMPORTANT RULES:
-1. If the Current page URL clearly matches the expected outcome, or is a logical redirect/conceptually equivalent page (e.g., expected '/abuse/answers' but got '/help/abuse-answers'), mark it as SUCCESS. Do not fail a test just because of a minor redirect or path change as long as the content matches the intent.
-2. For security probes (like XSS/SQLi), if the payload is reflected unsanitized or causes an error trace, mark it as FAILED (vulnerable). If it is blocked or sanitized, mark it as SUCCESS (secure).
-3. Social Media Redirects: If the expected outcome is navigating to a social media profile or page (e.g., Instagram, Facebook, LinkedIn, Twitter/X, YouTube) and the current URL is that platform's login or landing page (e.g., `instagram.com/accounts/login`), this is a SUCCESS. It indicates the link successfully routed to the platform, which then prompted for login.
-4. Empty Search/Filter Results: If the action involves searching or filtering (e.g., searching for 'test product'), and the expected outcome is that results are shown, but the page displays a standard 'No results found', '0 results', 'No items found', or similar empty state message, mark it as SUCCESS. The search mechanism executed correctly, even if the database had no matching records.
-5. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
+Classify the result into EXACTLY ONE of these categories:
+- SUCCESS_MATCH: The expected outcome happened, or a logical redirect/conceptually equivalent page occurred.
+- EMPTY_STATE: A valid empty state (e.g., '0 results found') after a search or filter action.
+- AUTH_WALL: The user was redirected to a valid login/signup barrier (e.g., social media login prompt).
+- APP_ERROR: The application genuinely crashed (e.g., 500 error, stack trace).
+- UNEXPECTED_FAILURE: The action did not yield the expected result and is not an error or auth wall.
+- SECURITY_VULNERABILITY: For security probes, if the payload is reflected unsanitized or causes an error trace.
+- SECURITY_BLOCKED: For security probes, if the payload is blocked or sanitized.
+
+Respond ONLY with JSON: {{"classification": "CATEGORY_NAME", "details": "One sentence explaining verdict"}}
+"""
+
+REFLECTOR_VERIFY_PROMPT = """You are a Senior QA Architect. An automated test was flagged as a failure by the fast-check system, but you need to double-check if it's a GENUINE application defect or just EXPECTED BEHAVIOR (e.g., standard login redirection, rate limiting, validation error, or a search empty state).
+
+Action performed : "{intent_description}"
+URL BEFORE action: {previous_url}
+URL AFTER action : {current_url}
+Expected outcome : "{expected_outcome}"
+Fast-Check Result: {fast_classification} ({fast_details})
+
+Distilled page HTML:
+{page_text}
+
+Think step-by-step. Consider:
+1. Did the application crash or misbehave?
+2. Is the "failure" actually just the application enforcing a standard business rule (like requiring auth, showing a validation error for bad input, or displaying a 0-results state)?
+3. If it is standard business behavior, it should be marked as SUCCESS.
+
+Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining your final verdict"}}
 """

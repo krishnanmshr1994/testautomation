@@ -147,6 +147,8 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
                 "action_details": f"Playwright Action: {action.upper()} on selector '{selector}'" + (f" with payload '{payload}'" if payload else "")
             }
             
+            previous_url = page.url
+            
             if len(test_payloads) > 1:
                 await stream_log(f"  → Fuzzing Payload {p_idx + 1}/{len(test_payloads)}: {str(payload)[:30]}...")
 
@@ -301,8 +303,10 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
                 step_result["verification_success"] = True
                 step_result["details"] = f"URL changed to '{current_url}' which matches expected outcome."
             else:
+                from src.prompts import EXECUTOR_VERIFY_PROMPT, REFLECTOR_VERIFY_PROMPT
                 verify_prompt = EXECUTOR_VERIFY_PROMPT.format(
                     intent_description=intent.description,
+                    previous_url=previous_url,
                     current_url=current_url,
                     expected_outcome=intent.expected_outcome,
                     page_text=page_text
@@ -310,15 +314,44 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
                 try:
                     verify_data = await ask_llm_fast_json_with_healing(
                         verify_prompt,
-                        system="You are a QA verification expert. Respond only with JSON.",
+                        system="You are a fast QA verification classifier. Respond ONLY with JSON.",
                         temperature=0.0,
                         max_retries=2
                     )
-                    step_result["verification_success"] = verify_data.get("success", False)
-                    step_result["details"] = verify_data.get("details", "")
-                except Exception:
+                    cls = verify_data.get("classification", "UNEXPECTED_FAILURE")
+                    details = verify_data.get("details", "")
+                    
+                    if cls in ("SUCCESS_MATCH", "EMPTY_STATE", "AUTH_WALL", "LOGICAL_REDIRECT", "SECURITY_BLOCKED"):
+                        step_result["verification_success"] = True
+                        step_result["details"] = details
+                    elif cls in ("UNEXPECTED_FAILURE", "APP_ERROR"):
+                        # Reflector Escalation (Reasoning Model)
+                        await stream_log(f"  [Reflector] Escalating classification '{cls}' to reasoning model...")
+                        reflector_prompt = REFLECTOR_VERIFY_PROMPT.format(
+                            intent_description=intent.description,
+                            previous_url=previous_url,
+                            current_url=current_url,
+                            expected_outcome=intent.expected_outcome,
+                            fast_classification=cls,
+                            fast_details=details,
+                            page_text=page_text
+                        )
+                        from src.browser_manager import ask_llm_json_with_healing
+                        reflector_data = await ask_llm_json_with_healing(
+                            reflector_prompt,
+                            system="You are a Senior QA Architect. Respond ONLY with JSON.",
+                            temperature=0.1,
+                            max_retries=2
+                        )
+                        step_result["verification_success"] = reflector_data.get("success", False)
+                        step_result["details"] = f"(Reflector) {reflector_data.get('details', details)}"
+                    else:
+                        step_result["verification_success"] = False
+                        step_result["details"] = details
+
+                except Exception as e:
                     step_result["verification_success"] = False
-                    step_result["details"] = "Verification parse error."
+                    step_result["details"] = f"Verification parse error: {e}"
 
             status = "✅ Passed" if step_result["verification_success"] else "❌ Failed"
             if len(test_payloads) == 1:
