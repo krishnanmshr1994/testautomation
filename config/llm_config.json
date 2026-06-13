@@ -1,6 +1,6 @@
 {
     "active_provider": "mistral",
-    "fallback_provider": "nvidia",
+    "provider_priority": ["mistral", "nvidia"],
     "providers": {
         "mistral": {
             "base_url": "https://api.mistral.ai/v1",

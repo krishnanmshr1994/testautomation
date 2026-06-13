@@ -42,9 +42,15 @@ def get_reasoning_model() -> str:
     # Allow environment variable overrides
     return os.getenv("MODEL_NAME", provider["reasoning_model"])
 
-def get_fallback_provider_name() -> str | None:
+def get_provider_priority() -> list:
     config = _load_config()
-    return config.get("fallback_provider")
+    priority = config.get("provider_priority", [])
+    if not priority:
+        # Fallback to active_provider if priority is missing/empty
+        active = config.get("active_provider")
+        if active:
+            priority = [active]
+    return priority
 
 def get_provider_client_and_model(provider_name: str, model_type: str) -> tuple:
     config = _load_config()

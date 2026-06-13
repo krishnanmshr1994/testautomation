@@ -5,7 +5,7 @@ from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 from openai import AsyncOpenAI
 
 # Use llm_provider for all model and client configuration
-from src.llm_provider import get_llm_client, is_openrouter, get_fast_model, get_reasoning_model, get_fallback_provider_name, get_provider_client_and_model
+from src.llm_provider import get_llm_client, is_openrouter, get_fast_model, get_reasoning_model, get_provider_priority, get_provider_client_and_model
 from src.settings_loader import get_concurrency_settings, get_timeout_settings
 
 # Global references
@@ -318,8 +318,12 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 return await ask_llm_fast(messages=messages, temperature=temperature)
         else:
             # Non-OpenRouter path 
-            client = get_llm_client()
-            model_name = get_reasoning_model()
+            providers = get_provider_priority()
+            current_provider_idx = 0
+            provider_name = providers[current_provider_idx]
+            
+            client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+            
             if messages is None:
                 messages = [
                     {"role": "system", "content": system},
@@ -332,14 +336,13 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             backoff_factor = 2.0
             from src.logger import stream_log
             semaphore = _get_llm_semaphore()
-            fallback_provider = get_fallback_provider_name()
-            using_fallback = False
             
             for attempt in range(max_attempts):
                 try:
                     async with semaphore:
-                        # Only throttle on primary provider to conserve limits; fallback providers (e.g. Nvidia) don't need throttling delays
-                        if not using_fallback:
+                        # Only throttle on primary provider (index 0, e.g. Mistral) to conserve limits;
+                        # fallback providers (e.g. Nvidia) don't need throttling delays
+                        if current_provider_idx == 0:
                             await _throttle_llm_request()
                         response = await client.chat.completions.create(
                             model=model_name, messages=messages,
@@ -357,29 +360,28 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                     return response.choices[0].message.content or "", None
 
                 except Exception as e:
-                    is_rate_limit = False
                     err_str = str(e).lower()
-                    if "429" in err_str or "rate limit" in err_str or "too many requests" in err_str:
-                        is_rate_limit = True
                     
-                    if is_rate_limit:
-                        if fallback_provider and not using_fallback:
-                            await stream_log(
-                                f"[Rate Limit] 429 for '{model_name}'. "
-                                f"Failing over to fallback provider '{fallback_provider}'..."
-                            )
-                            try:
-                                client, model_name = get_provider_client_and_model(fallback_provider, "fast" if temperature == 0.1 else "reasoning")
-                                using_fallback = True
-                                continue # retry immediately using failover provider
-                            except Exception as failover_err:
-                                await stream_log(f"[Failover Error] Failed to switch to {fallback_provider}: {failover_err}")
+                    # If we have multiple providers, failover to the next one in the priority list (round-robin loop)
+                    if len(providers) > 1:
+                        next_provider_idx = (current_provider_idx + 1) % len(providers)
+                        next_provider = providers[next_provider_idx]
+                        await stream_log(
+                            f"[LLM Failover] Request to '{provider_name}' failed ({e}). "
+                            f"Rotating to next provider in list: '{next_provider}'..."
+                        )
+                        try:
+                            client, model_name = get_provider_client_and_model(next_provider, "fast" if temperature == 0.1 else "reasoning")
+                            current_provider_idx = next_provider_idx
+                            provider_name = next_provider
+                            continue # retry immediately using the next provider in the loop
+                        except Exception as failover_err:
+                            await stream_log(f"[Failover Error] Failed to switch to {next_provider}: {failover_err}")
 
-                    if is_rate_limit and attempt < max_attempts - 1:
+                    if attempt < max_attempts - 1:
                         sleep_time = backoff_factor * (2 ** attempt)
                         await stream_log(
-                            f"[Rate Limit] 429 for '{model_name}'. "
-                            f"Retrying in {sleep_time:.1f}s (attempt {attempt+1}/{max_attempts})..."
+                            f"[Rate Limit/API Error] Retrying on '{provider_name}' in {sleep_time:.1f}s (attempt {attempt+1}/{max_attempts})..."
                         )
                         await asyncio.sleep(sleep_time)
                         continue
