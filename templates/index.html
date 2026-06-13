@@ -273,7 +273,15 @@
 
         .terminal .line { padding: 1px 0; line-height: 1.5; }
         .terminal .line::before { content: '> '; color: var(--primary); }
-        .terminal .err::before { color: var(--red); }
+        .terminal .err {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5 !important;
+            border-left: 4px solid var(--red);
+            padding: 4px 8px;
+            margin: 4px 0;
+            border-radius: 4px;
+        }
+        .terminal .err::before { content: '❌ '; color: var(--red); }
         .terminal .warn::before { color: var(--yellow); }
         .terminal .info::before { color: var(--purple); }
         .terminal .success::before { color: var(--green); }
