@@ -133,11 +133,30 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
             except Exception:
                 pass  # Not critical — proceed anyway
 
+            # Check if the element is actually fillable (input, textarea, select, or contenteditable)
+            tag_name = ""
+            is_contenteditable = False
+            try:
+                tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
+                is_contenteditable = await element.evaluate("el => el.isContentEditable || el.getAttribute('contenteditable') !== null")
+            except Exception:
+                pass
+
+            is_fillable = tag_name in ("input", "textarea", "select") or is_contenteditable
+
             try:
                 if action == "fill" and payload:
-                    await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
-                    if intent.is_security_probe:
-                        await element.press("Enter", timeout=timeouts.get("element_press", 5000)) # Auto-submit ONLY for security probes
+                    if not is_fillable:
+                        # Fallback: if LLM asked to fill a link/button, click it instead
+                        await stream_log(f"  [Warning] Attempted to fill non-fillable element <{tag_name}>. Falling back to click.")
+                        try:
+                            await element.click(timeout=timeouts.get("element_click", 10000))
+                        except Exception:
+                            await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
+                    else:
+                        await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
+                        if intent.is_security_probe:
+                            await element.press("Enter", timeout=timeouts.get("element_press", 5000)) # Auto-submit ONLY for security probes
                 elif action == "press":
                     await element.press(str(payload) if payload else "Enter", timeout=timeouts.get("element_fill", 10000))
                 else:
