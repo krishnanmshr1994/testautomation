@@ -49,22 +49,44 @@ def _get_llm_semaphore() -> asyncio.Semaphore:
 import time
 
 _last_llm_request_time: float = 0.0
+_request_timestamps: list[float] = []
 _rate_limit_lock = asyncio.Lock()
 
 async def _throttle_llm_request():
-    global _last_llm_request_time
+    global _last_llm_request_time, _request_timestamps
     concurrency_cfg = get_concurrency_settings()
-    delay = concurrency_cfg.get("min_llm_request_delay", 1.0)
-    if delay <= 0:
-        return
     
-    async with _rate_limit_lock:
-        now = time.time()
-        elapsed = now - _last_llm_request_time
-        if elapsed < delay:
-            sleep_time = delay - elapsed
-            await asyncio.sleep(sleep_time)
-        _last_llm_request_time = time.time()
+    # 1. Enforce per-second minimum delay
+    delay = concurrency_cfg.get("min_llm_request_delay", 1.0)
+    if delay > 0:
+        async with _rate_limit_lock:
+            now = time.time()
+            elapsed = now - _last_llm_request_time
+            if elapsed < delay:
+                sleep_time = delay - elapsed
+                await asyncio.sleep(sleep_time)
+            _last_llm_request_time = time.time()
+
+    # 2. Enforce per-minute sliding window limit
+    max_rpm = concurrency_cfg.get("max_llm_requests_per_minute", 0)
+    if max_rpm > 0:
+        async with _rate_limit_lock:
+            now = time.time()
+            # Retain only timestamps from the last 60 seconds
+            _request_timestamps = [t for t in _request_timestamps if now - t < 60.0]
+            
+            if len(_request_timestamps) >= max_rpm:
+                oldest_timestamp = _request_timestamps[0]
+                sleep_time = 60.0 - (now - oldest_timestamp)
+                if sleep_time > 0:
+                    from src.logger import stream_log
+                    await stream_log(
+                        f"[Rate Limiter] Approaching rolling per-minute API limit ({max_rpm} RPM). "
+                        f"Throttling request pipeline for {sleep_time:.1f}s to avoid 429 block..."
+                    )
+                    await asyncio.sleep(sleep_time)
+            
+            _request_timestamps.append(time.time())
 
 # Removed get_ai_client as it's now handled by llm_provider
 async def distill_dom(page) -> str:

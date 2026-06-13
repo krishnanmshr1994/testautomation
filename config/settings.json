@@ -3,7 +3,9 @@
     "max_page_concurrency": 5,
     "max_llm_concurrency": 1,
     // Minimum delay in seconds between consecutive LLM API calls to avoid rate limit (429) errors (e.g., set to 1.0 for Mistral Free tier).
-    "min_llm_request_delay": 1.0
+    "min_llm_request_delay": 1.0,
+    // Maximum LLM requests allowed per rolling 60-second window (e.g., set to 5 for Mistral Free tier. Set to 0 to disable).
+    "max_llm_requests_per_minute": 5
   },
   "timeouts": {
     "page_navigation": 10000,

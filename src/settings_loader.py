@@ -20,7 +20,8 @@ def load_settings() -> dict:
                 "concurrency": {
                     "max_page_concurrency": 3,
                     "max_llm_concurrency": 3,
-                    "min_llm_request_delay": 1.0
+                    "min_llm_request_delay": 1.0,
+                    "max_llm_requests_per_minute": 5
                 },
                 "timeouts": {
                     "page_navigation": 10000,
