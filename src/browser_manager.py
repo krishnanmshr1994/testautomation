@@ -5,7 +5,7 @@ from playwright.async_api import async_playwright, Browser, Page, BrowserContext
 from openai import AsyncOpenAI
 
 # Use llm_provider for all model and client configuration
-from src.llm_provider import get_llm_client, is_openrouter, get_fast_model, get_reasoning_model
+from src.llm_provider import get_llm_client, is_openrouter, get_fast_model, get_reasoning_model, get_fallback_provider_name, get_provider_client_and_model
 from src.settings_loader import get_concurrency_settings, get_timeout_settings
 
 # Global references
@@ -332,11 +332,15 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             backoff_factor = 2.0
             from src.logger import stream_log
             semaphore = _get_llm_semaphore()
+            fallback_provider = get_fallback_provider_name()
+            using_fallback = False
             
             for attempt in range(max_attempts):
                 try:
                     async with semaphore:
-                        await _throttle_llm_request()
+                        # Only throttle on primary provider to conserve limits; fallback providers (e.g. Nvidia) don't need throttling delays
+                        if not using_fallback:
+                            await _throttle_llm_request()
                         response = await client.chat.completions.create(
                             model=model_name, messages=messages,
                             temperature=temperature, max_tokens=4096, timeout=non_or_timeout,
@@ -358,6 +362,19 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                     if "429" in err_str or "rate limit" in err_str or "too many requests" in err_str:
                         is_rate_limit = True
                     
+                    if is_rate_limit:
+                        if fallback_provider and not using_fallback:
+                            await stream_log(
+                                f"[Rate Limit] 429 for '{model_name}'. "
+                                f"Failing over to fallback provider '{fallback_provider}'..."
+                            )
+                            try:
+                                client, model_name = get_provider_client_and_model(fallback_provider, "fast" if temperature == 0.1 else "reasoning")
+                                using_fallback = True
+                                continue # retry immediately using failover provider
+                            except Exception as failover_err:
+                                await stream_log(f"[Failover Error] Failed to switch to {fallback_provider}: {failover_err}")
+
                     if is_rate_limit and attempt < max_attempts - 1:
                         sleep_time = backoff_factor * (2 ** attempt)
                         await stream_log(

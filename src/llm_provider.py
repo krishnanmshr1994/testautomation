@@ -41,3 +41,19 @@ def get_reasoning_model() -> str:
     provider = get_active_provider()
     # Allow environment variable overrides
     return os.getenv("MODEL_NAME", provider["reasoning_model"])
+
+def get_fallback_provider_name() -> str | None:
+    config = _load_config()
+    return config.get("fallback_provider")
+
+def get_provider_client_and_model(provider_name: str, model_type: str) -> tuple:
+    config = _load_config()
+    provider = config["providers"][provider_name]
+    api_key = os.getenv(provider["env_key"])
+    if not api_key:
+        raise ValueError(f"Missing API key for provider {provider_name}. Please set {provider['env_key']} in your .env file.")
+    
+    return AsyncOpenAI(
+        base_url=provider["base_url"],
+        api_key=api_key,
+    ), provider["reasoning_model"] if model_type == "reasoning" else provider["fast_model"]
