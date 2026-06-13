@@ -122,5 +122,6 @@ IMPORTANT RULES:
 1. If the Current page URL clearly matches the expected outcome, or is a logical redirect/conceptually equivalent page (e.g., expected '/abuse/answers' but got '/help/abuse-answers'), mark it as SUCCESS. Do not fail a test just because of a minor redirect or path change as long as the content matches the intent.
 2. For security probes (like XSS/SQLi), if the payload is reflected unsanitized or causes an error trace, mark it as FAILED (vulnerable). If it is blocked or sanitized, mark it as SUCCESS (secure).
 3. Social Media Redirects: If the expected outcome is navigating to a social media profile or page (e.g., Instagram, Facebook, LinkedIn, Twitter/X, YouTube) and the current URL is that platform's login or landing page (e.g., `instagram.com/accounts/login`), this is a SUCCESS. It indicates the link successfully routed to the platform, which then prompted for login.
-4. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
+4. Empty Search/Filter Results: If the action involves searching or filtering (e.g., searching for 'test product'), and the expected outcome is that results are shown, but the page displays a standard 'No results found', '0 results', 'No items found', or similar empty state message, mark it as SUCCESS. The search mechanism executed correctly, even if the database had no matching records.
+5. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
 """
