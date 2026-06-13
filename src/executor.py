@@ -7,7 +7,7 @@ from src.logger import stream_log
 
 import os
 
-async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
+async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fuzzed_targets: set = None) -> list:
     """
     Iterates through the test plan.
     Uses LLM to identify selectors, then Playwright to execute actions.
@@ -85,7 +85,8 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
                 "action_success": False,
                 "verification_success": False,
                 "error": err_msg,
-                "details": "No matching selector found."
+                "details": "No matching selector found.",
+                "action_details": "Failed to identify selector"
             }
             results.append(step_result)
             if live_reporter:
@@ -94,6 +95,15 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
 
         selector = action_data["selector"]
         action = action_data.get("action", "click")
+
+        # Skip already fuzzed targets (Leak 3 Fix)
+        if intent.is_security_probe and getattr(intent, "attack_type", None):
+            fuzz_key = f"{intent.attack_type}:{selector}"
+            if global_fuzzed_targets is not None:
+                if fuzz_key in global_fuzzed_targets:
+                    await stream_log(f"  --- Skipping: Already fuzzed {fuzz_key} ---")
+                    continue
+                global_fuzzed_targets.add(fuzz_key)
 
         # Determine payloads to test
         test_payloads = [None] # Default to None (no payload or value specified)
@@ -111,7 +121,8 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
                 "action_success": False,
                 "verification_success": False,
                 "error": None,
-                "details": ""
+                "details": "",
+                "action_details": f"Playwright Action: {action.upper()} on selector '{selector}'" + (f" with payload '{payload}'" if payload else "")
             }
             
             if len(test_payloads) > 1:
@@ -136,9 +147,23 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
             # Check if the element is actually fillable (input, textarea, select, or contenteditable)
             tag_name = ""
             is_contenteditable = False
+            is_search_field = False
             try:
                 tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
                 is_contenteditable = await element.evaluate("el => el.isContentEditable || el.getAttribute('contenteditable') !== null")
+                is_search_field = await element.evaluate("""el => {
+                    const t = el.type ? el.type.toLowerCase() : '';
+                    const n = el.name ? el.name.toLowerCase() : '';
+                    const i = el.id ? el.id.toLowerCase() : '';
+                    const p = el.placeholder ? el.placeholder.toLowerCase() : '';
+                    return t === 'search' || n.includes('search') || i.includes('search') || p.includes('search') || n === 'q';
+                }""")
+            except Exception:
+                pass
+
+            # Prevent links from opening in new tabs (strip target="_blank")
+            try:
+                await element.evaluate("el => { if(el.tagName.toLowerCase() === 'a' && el.target === '_blank') el.removeAttribute('target'); }")
             except Exception:
                 pass
 
@@ -155,8 +180,8 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
                             await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
                     else:
                         await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
-                        if intent.is_security_probe:
-                            await element.press("Enter", timeout=timeouts.get("element_press", 5000)) # Auto-submit ONLY for security probes
+                        if intent.is_security_probe or is_search_field:
+                            await element.press("Enter", timeout=timeouts.get("element_press", 5000)) # Auto-submit ONLY for security probes or search fields
                 elif action == "press":
                     await element.press(str(payload) if payload else "Enter", timeout=timeouts.get("element_fill", 10000))
                 else:
@@ -190,9 +215,17 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
             current_url = page.url
             page_text = await distill_dom(page)
 
-            # Smart URL-based shortcut for navigation tests
-            url_keywords = [w.lower() for w in intent.expected_outcome.split() if len(w) > 3 and w.isalpha()]
-            url_match = any(kw in current_url.lower() for kw in url_keywords)
+            # Smart URL-based shortcut for navigation tests (Leak 2 Fix)
+            url_match = False
+            expected_url_pattern = re.search(r'(https?://[^\s]+|/[a-zA-Z0-9_\-\./]+)', intent.expected_outcome)
+            if expected_url_pattern:
+                expected_url = expected_url_pattern.group(0).strip("'\".),")
+                if expected_url in current_url and "error" not in current_url.lower():
+                    url_match = True
+            
+            if not url_match:
+                url_keywords = [w.lower() for w in intent.expected_outcome.split() if len(w) > 3 and w.isalpha()]
+                url_match = any(kw in current_url.lower() for kw in url_keywords) and len(url_keywords) > 0
             
             fast_fail_security = False
             if intent.is_security_probe and getattr(intent, "attack_type", None) and payload:

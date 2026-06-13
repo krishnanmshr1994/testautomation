@@ -89,9 +89,10 @@ For EVERY issue you find, return a vulnerability object with:
 
 IMPORTANT ENFORCEMENT RULES:
 1. Think like an attacker. Do not skip anything. Be thorough and specific.
-2. If multiple elements share the SAME vulnerability (e.g., 3 different 'http://' links instead of 'https://'), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object. You MUST list EVERY SINGLE INSTANCE in the `evidence` field. Do not just list the first one and discard the rest.
+2. If multiple elements share the SAME vulnerability (e.g., 3 identical missing CSRF tokens), DO NOT create separate vulnerabilities. Group them into a SINGLE vulnerability object. You MUST list EVERY SINGLE INSTANCE in the `evidence` field. Do not just list the first one and discard the rest.
 3. Focus ONLY on the categories provided for this pass.
 4. ABSOLUTELY NO THEORETICAL RISKS: You MUST have concrete, visible evidence in the HTML snippet to report a vulnerability. If you cannot point to an exact line or attribute in the HTML, DO NOT report it. Do not say "potential for X exists" or "no explicit evidence found".
+5. ANTI-HALLUCINATION CHECK: Before reporting an issue (like insecure HTTP links), explicitly double-check that the evidence actually violates the rule. Do not report secure links (https://) as insecure.
 
 Respond ONLY with valid JSON in this exact format:
 {{

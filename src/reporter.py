@@ -136,6 +136,8 @@ class LiveReporter:
                 f.write(f"\n  TC-{self._func_counter:03d} [{status}]\n")
                 f.write(f"         Test     : {intent.description}\n")
                 f.write(f"         Expected : {intent.expected_outcome}\n")
+                if result.get("action_details"):
+                    f.write(f"         Action   : {result['action_details']}\n")
                 if result.get("details"):
                     f.write(f"         Actual   : {result['details']}\n")
                 if result.get("error"):

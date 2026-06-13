@@ -116,7 +116,8 @@ async def generate_test_plan(page: Page,
                              extra_context: str = "",
                              custom_tests_raw: str = "",
                              run_functional: bool = True,
-                             run_probes: bool = True) -> TestPlan:
+                             run_probes: bool = True,
+                             global_tested_elements: set = None) -> TestPlan:
     """
     Extracts the DOM elements from the page and asks the LLM to generate a test plan.
     If custom_tests_raw is provided, those intents are prepended to the AI-generated ones.
@@ -167,8 +168,14 @@ async def generate_test_plan(page: Page,
     deduped = []
     for el in sorted(dom_summary, key=element_priority):
         key = (el.get('tag'), el.get('type'), el.get('name'), el.get('id'), el.get('text'), el.get('href'))
+        
+        if global_tested_elements is not None and key in global_tested_elements:
+            continue
+            
         if key not in seen and any(v for v in el.values() if v):
             seen.add(key)
+            if global_tested_elements is not None:
+                global_tested_elements.add(key)
             deduped.append(el)
 
     if len(deduped) > MAX_ELEMENTS:

@@ -46,6 +46,8 @@ async def run_single_page(url: str,
                           context_queue: asyncio.Queue,
                           semaphore: asyncio.Semaphore,
                           run_dir: str,
+                          global_tested_elements: set,
+                          global_fuzzed_targets: set,
                           page_index: int = 1,
                           total_pages: int = 1) -> dict:
     async with semaphore:
@@ -69,14 +71,14 @@ async def run_single_page(url: str,
                 await stream_log(f"[{url}] User Context Applied: {extra_context}")
 
             # ── 3. Generate Test Plan ──────────────────────────────────────────────
-            test_plan = await generate_test_plan(page, extra_context, custom_tests_raw, run_functional, run_probes)
+            test_plan = await generate_test_plan(page, extra_context, custom_tests_raw, run_functional, run_probes, global_tested_elements)
 
             # ── 4. Initialize Live Reporter ───────────────────────────────────────
             live_reporter = LiveReporter(url, output_dir=run_dir)
             await live_reporter.initialize(audit_result, test_plan)
 
             # ── 5. Execute ────────────────────────────────────────────────────────
-            await execute_plan(page, test_plan, live_reporter=live_reporter)
+            await execute_plan(page, test_plan, live_reporter=live_reporter, global_fuzzed_targets=global_fuzzed_targets)
 
             # ── 6. Finalize ───────────────────────────────────────────────────────
             return await live_reporter.finalize()
@@ -147,11 +149,15 @@ async def run_automation(target: str,
     tasks = []
     
     total_pages = len(urls_to_test)
+    global_tested_elements = set()
+    global_fuzzed_targets = set()
+    
     for idx, url in enumerate(urls_to_test):
         tasks.append(run_single_page(
             url, is_html, extra_context, custom_tests_raw, 
             run_audit, run_functional, run_probes, 
             context_queue, semaphore, run_dir,
+            global_tested_elements, global_fuzzed_targets,
             page_index=idx + 1, total_pages=total_pages
         ))
         
