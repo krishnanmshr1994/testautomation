@@ -76,7 +76,6 @@ async def run_background_automation(url: str, context_queue: asyncio.Queue,
     _context_queues.pop(url, None)
     if report:
         await stream_logger.log("--- COMPLETE ---")
-        await stream_logger.log(json.dumps(report))
     else:
         await stream_logger.log("--- FAILED ---")
 
