@@ -54,7 +54,10 @@ _request_timestamps: list[float] = []
 _rate_limit_lock = asyncio.Lock()
 
 async def _throttle_llm_request():
-    global _last_llm_request_time, _request_timestamps
+    global _last_llm_request_time, _request_timestamps, _last_successful_provider_idx
+    providers = get_provider_priority()
+    if providers and (_last_successful_provider_idx % len(providers)) != 0:
+        return
     concurrency_cfg = get_concurrency_settings()
     
     # 1. Enforce per-second minimum delay
@@ -356,10 +359,6 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             providers = get_provider_priority()
             if not providers:
                 providers = ["mistral"]
-            current_provider_idx = _last_successful_provider_idx % len(providers)
-            provider_name = providers[current_provider_idx]
-            
-            client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
             
             if messages is None:
                 messages = [
@@ -375,12 +374,27 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             semaphore = _get_llm_semaphore()
             
             for attempt in range(max_attempts):
+                # Dynamically resolve provider client and model at start of attempt
+                current_provider_idx = _last_successful_provider_idx % len(providers)
+                provider_name = providers[current_provider_idx]
+                client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+                
                 try:
                     async with semaphore:
-                        # Only throttle on primary provider (index 0, e.g. Mistral) to conserve limits;
-                        # fallback providers (e.g. Nvidia) don't need throttling delays
+                        # Re-resolve after semaphore wait in case another task failed over in the meantime
+                        current_provider_idx = _last_successful_provider_idx % len(providers)
+                        provider_name = providers[current_provider_idx]
+                        client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+                        
                         if current_provider_idx == 0:
                             await _throttle_llm_request()
+                            
+                            # Re-resolve after throttling sleep in case failover happened during the sleep
+                            current_provider_idx = _last_successful_provider_idx % len(providers)
+                            if current_provider_idx != 0:
+                                provider_name = providers[current_provider_idx]
+                                client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+                        
                         response = await client.chat.completions.create(
                             model=model_name, messages=messages,
                             temperature=temperature, max_tokens=4096, timeout=non_or_timeout,
