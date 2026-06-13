@@ -324,7 +324,7 @@ async def _call_openrouter(
 
 
 
-async def ask_llm(prompt: str = None, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, messages: list = None) -> tuple[str, str | None]:
+async def ask_llm(prompt: str = None, system: str = "You are a QA and Security testing expert.", temperature: float = 0.2, messages: list = None, model_type: str = "reasoning") -> tuple[str, str | None]:
     """
     Reasoning model call (poolside/laguna-m.1 by default).
     Used for complex tasks: audit, test plan generation, context analysis.
@@ -377,14 +377,14 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 # Dynamically resolve provider client and model at start of attempt
                 current_provider_idx = _last_successful_provider_idx % len(providers)
                 provider_name = providers[current_provider_idx]
-                client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+                client, model_name = get_provider_client_and_model(provider_name, model_type)
                 
                 try:
                     async with semaphore:
                         # Re-resolve after semaphore wait in case another task failed over in the meantime
                         current_provider_idx = _last_successful_provider_idx % len(providers)
                         provider_name = providers[current_provider_idx]
-                        client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+                        client, model_name = get_provider_client_and_model(provider_name, model_type)
                         
                         if current_provider_idx == 0:
                             await _throttle_llm_request()
@@ -393,7 +393,7 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                             current_provider_idx = _last_successful_provider_idx % len(providers)
                             if current_provider_idx != 0:
                                 provider_name = providers[current_provider_idx]
-                                client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
+                                client, model_name = get_provider_client_and_model(provider_name, model_type)
                         
                         response = await client.chat.completions.create(
                             model=model_name, messages=messages,
@@ -426,7 +426,7 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                             f"Rotating to next provider in list: '{next_provider}'..."
                         )
                         try:
-                            client, model_name = get_provider_client_and_model(next_provider, "fast" if temperature == 0.1 else "reasoning")
+                            client, model_name = get_provider_client_and_model(next_provider, model_type)
                             current_provider_idx = next_provider_idx
                             provider_name = next_provider
                             continue # retry immediately using the next provider in the loop
@@ -473,7 +473,7 @@ async def ask_llm_fast(prompt: str = None, system: str = "You are a QA and Secur
                 timeout=fast_timeout
             )
         else:
-            return await ask_llm(prompt=prompt, system=system, temperature=temperature, messages=messages)
+            return await ask_llm(prompt=prompt, system=system, temperature=temperature, messages=messages, model_type="fast")
     except Exception as e:
         from src.logger import stream_log
         await stream_log(f"\n[LLM Fast Error] Fast model failed: {e}")
