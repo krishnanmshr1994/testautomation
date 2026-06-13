@@ -172,6 +172,24 @@ Interactive HTML report viewer in the dashboard supports filter pills (All/Pass/
 ---
 
 ## 28. Playwright Network Interception for Trackers
-**Decision:** Inject an aggressive page.route network interceptor in init_browser() that instantly aborts requests matching common tracking and analytics domains (e.g., Google Analytics, Hotjar, Sentry, Facebook Pixel).
-**Rationale:** Analytics scripts unnecessarily slow down Playwright page load times (
-etworkidle), clutter terminal console logs with CSP errors, and pollute the target application's analytics dashboards with bot traffic. Aborting these connections solves all three issues.
+**Decision:** Inject an aggressive page.route network interceptor in `init_browser()` that instantly aborts requests matching common tracking and analytics domains (e.g., Google Analytics, Hotjar, Sentry, Facebook Pixel).
+**Rationale:** Analytics scripts unnecessarily slow down Playwright page load times (`networkidle`), clutter terminal console logs with CSP errors, and pollute the target application's analytics dashboards with bot traffic. Aborting these connections solves all three issues.
+
+---
+
+## 29. Per-Provider Cooldown Mechanism
+**Decision:** Add per-provider cooldown tracking (`_provider_cooldowns` expiry dict) and a configurable `provider_cooldown_secs` parameter. If a provider encounters a rate limit (429) or connection error, place it on cooldown and prioritize other providers. If all configured providers are cooling down, the system sleeps/blocks for the minimum remaining duration before retrying.
+**Rationale:** Standard rotating failover can easily ping-pong back and forth between two exhausted providers, leading to immediate back-to-back 429s. A dedicated cooldown timer guarantees that rate-limited providers have sufficient time (e.g. 62 seconds) to clear their rolling rate-limit window before receiving another call.
+
+---
+
+## 30. Robust JSON Parsing using Stream Decoding
+**Decision:** Replace regex-based extraction of LLM payloads (`re.search(r'\{.*\}', content)`) with a native stream-decoding approach using `json.JSONDecoder().raw_decode()`.
+**Rationale:** Under high congestion, some models output trailing thoughts, conversational text, or multiple JSON objects. A greedy regex captures everything from the first `{` to the last `}`, rendering the string invalid JSON. Stream decoding starts at the first `{` and reads only until the matching closing brace, successfully isolating the desired JSON payload.
+
+---
+
+## 31. Playwright Action Constraints (Click & Fill Only)
+**Decision:** Remove the `press` action from the selector generator's instructions, restricting allowed interactive actions for functional steps to `click` and `fill`.
+**Rationale:** Playwright's `locator.press()` expects a keyboard key name (e.g., `"Enter"` or `"Control+A"`). Generating a `press` action with a text payload (e.g., `element.press("test_value")`) caused Playwright crashes. Restricting LLM actions to `fill` (for inputs) and `click` (for buttons and links) maintains API safety, while allowing internal helpers to execute key presses when required.
+

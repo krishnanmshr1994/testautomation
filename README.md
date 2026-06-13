@@ -137,6 +137,7 @@ testautomation/
 
 ## ⚙️ Configuration
 
+### 1. API Keys & Models (`.env`)
 Set your OpenRouter API key and desired models in `.env`:
 ```env
 OPENROUTER_API_KEY=sk-or-v1-xxxxxxxxxxxxxxxxxxxx
@@ -144,11 +145,26 @@ MODEL_NAME=poolside/laguna-m.1:free
 FAST_MODEL_NAME=meta-llama/llama-3.3-70b-instruct:free
 ```
 
+### 2. Fine-grained Settings (`config/settings.json`)
+You can control concurrency limits, Playwright action timeouts, and LLM rate-limiting thresholds in [config/settings.json](file:///c:/Users/krish/Documents/Test%20Automation/config/settings.json):
+- **concurrency**:
+  - `max_page_concurrency`: Max parallel pages to crawl/audit.
+  - `max_llm_concurrency`: Maximum simultaneous LLM requests.
+  - `min_llm_request_delay`: Minimum delay in seconds between consecutive requests.
+  - `max_llm_requests_per_minute`: Requests per minute limit (e.g. 5 for free tiers).
+  - `provider_cooldown_secs`: How long (in seconds) to put an LLM provider on cooldown after any failure/rate-limit error.
+- **timeouts**:
+  - Fine-grained Playwright timeouts (in milliseconds) for navigation, scrolling, clicking, and filling.
+  - Network idle and DOM loaded wait timeouts.
+  - Model-specific reasoning and fast LLM timeout thresholds (in seconds).
+
 ### Models in Use (Tiered Strategy)
 1. **Reasoning Model (`MODEL_NAME` / default: `poolside/laguna-m.1:free`)**: Used for high-complexity tasks (static security audits, test plan generation, and context analysis) with reasoning enabled.
 2. **Fast Model (`FAST_MODEL_NAME` / default: `meta-llama/llama-3.3-70b-instruct:free`)**: Used for low-complexity execution steps (CSS selector identification and action verification) to maximize speed.
 
 ### Fault Tolerance, Performance & Parallelism
+- **Adaptive Provider Failover & Cooldowns**: If a provider fails or encounters a rate-limit error, it is placed on a cooldown for a duration configured by `provider_cooldown_secs` (e.g. 62.0s). The system automatically skips this provider on subsequent retries and switches to the next configured provider. If all providers are cooling down, it pauses and waits for the one with the shortest remaining cooldown.
+- **Robust JSON Extraction**: Employs non-greedy stream parsing using `json.JSONDecoder().raw_decode` to reliably locate and parse the first valid JSON block. This eliminates `Extra data` errors caused by LLMs appending trailing comments or markdown outside of the JSON block.
 - **Timeout Fallback**: If the reasoning model times out (hard capped at 45s), the system automatically falls back to the fast model to continue execution without blocking.
 - **Rate-Limit & Server Error Resilience**: Integrates automatic exponential backoff retries (up to 5 attempts) on HTTP `429 Too Many Requests`, gateway/server errors (`502`, `503`, `504`), and inline OpenRouter provider errors.
 - **Deduplicated DOM Caching**: Caches distilled DOM snapshots per URL state during execution to eliminate redundant LLM calls.
