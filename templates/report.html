@@ -57,7 +57,42 @@
         .header h1{font-size:1.5rem;font-weight:800;background:linear-gradient(to right,var(--primary),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:4px;}
         .header .meta{color:var(--muted);font-size:.88rem;margin-bottom:24px;}
         .stats{display:flex;gap:14px;flex-wrap:wrap;}
-        .stat{background:rgba(255,255,255,.04);border:1px solid var(--border);border-radius:14px;padding:14px 22px;text-align:center;min-width:120px;}
+        .stat{
+            background:rgba(255,255,255,.04);
+            border:1px solid var(--border);
+            border-radius:14px;
+            padding:14px 22px;
+            text-align:center;
+            min-width:120px;
+            cursor:pointer;
+            transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select:none;
+        }
+        .stat:hover{
+            background:rgba(255,255,255,.08);
+            border-color:rgba(255,255,255,.2);
+            transform:translateY(-2px);
+        }
+        .stat.active-total {
+            border-color: var(--primary);
+            background: rgba(56, 189, 248, 0.1);
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.15);
+        }
+        .stat.active-success {
+            border-color: var(--green);
+            background: rgba(16, 185, 129, 0.1);
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
+        }
+        .stat.active-failed {
+            border-color: var(--red);
+            background: rgba(239, 68, 68, 0.1);
+            box-shadow: 0 0 16px rgba(239, 68, 68, 0.15);
+        }
+        .stat.active-vulns {
+            border-color: var(--purple);
+            background: rgba(168, 85, 247, 0.1);
+            box-shadow: 0 0 16px rgba(168, 85, 247, 0.15);
+        }
         .stat .n{font-size:1.9rem;font-weight:800;line-height:1;}
         .stat .l{font-size:.7rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:4px;}
         .c-blue{color:var(--primary);} .c-green{color:var(--green);} .c-red{color:var(--red);} .c-yellow{color:var(--yellow);}
@@ -161,17 +196,29 @@
         <h1>Test Execution Report</h1>
         <p class="meta">🌐 <strong>{{ report.target_url }}</strong> &nbsp;·&nbsp; 🕐 {{ report.generated_at }}</p>
         <div class="stats">
-            <div class="stat"><div class="n c-blue">{{ report.summary.total_actions }}</div><div class="l">Total Tests</div></div>
-            <div class="stat"><div class="n c-green">{{ report.summary.successful_actions }}</div><div class="l">Passed</div></div>
-            <div class="stat"><div class="n c-red">{{ report.summary.failed_actions }}</div><div class="l">Failed</div></div>
+            <div class="stat active-total" id="stat-total" onclick="applyGlobalFilter('all', this)">
+                <div class="n c-blue">{{ report.summary.total_actions }}</div>
+                <div class="l">Total Tests</div>
+            </div>
+            <div class="stat" id="stat-passed" onclick="applyGlobalFilter('success', this)">
+                <div class="n c-green">{{ report.summary.successful_actions }}</div>
+                <div class="l">Passed</div>
+            </div>
+            <div class="stat" id="stat-failed" onclick="applyGlobalFilter('failed', this)">
+                <div class="n c-red">{{ report.summary.failed_actions }}</div>
+                <div class="l">Failed</div>
+            </div>
             {% set vc = report.summary.vulnerabilities_found %}
-            <div class="stat"><div class="n {% if vc > 0 %}c-red{% else %}c-green{% endif %}">{{ vc }}</div><div class="l">Vulnerabilities</div></div>
+            <div class="stat" id="stat-vulns" onclick="applyGlobalFilter('vulns', this)">
+                <div class="n {% if vc > 0 %}c-red{% else %}c-green{% endif %}">{{ vc }}</div>
+                <div class="l">Vulnerabilities</div>
+            </div>
         </div>
     </div>
 
     <!-- ═══ Section 1: Security Audit ═══════════════════════════════════════ -->
     {% set vulns = report.static_audit.vulnerabilities if report.static_audit else [] %}
-    <div class="section">
+    <div class="section" id="sec-audit-section">
         <div class="section-head">
             <div class="section-title"><div class="si si-r">🔍</div> Security Audit <span style="color:var(--muted);font-weight:400;font-size:.85rem;">OWASP Top 10 · {{ vulns|length }} finding(s)</span></div>
             <div class="filters" id="vuln-filters">
@@ -216,7 +263,7 @@
         {% if not r.intent.is_security_probe %}{% set _ = func_results.append(r) %}{% endif %}
     {% endfor %}
 
-    <div class="section">
+    <div class="section" id="func-tests-section">
         <div class="section-head">
             <div class="section-title"><div class="si si-b">⚙️</div> Functional Tests <span style="color:var(--muted);font-weight:400;font-size:.85rem;">{{ func_results|length }} case(s)</span></div>
             <div class="filters" id="func-filters">
@@ -263,7 +310,7 @@
         {% if r.intent.is_security_probe %}{% set _ = sec_results.append(r) %}{% endif %}
     {% endfor %}
 
-    <div class="section">
+    <div class="section" id="sec-probes-section">
         <div class="section-head">
             <div class="section-title"><div class="si si-p">🛡️</div> Security Probe Tests <span style="color:var(--muted);font-weight:400;font-size:.85rem;">XSS · SQLi · OWASP Payloads · {{ sec_results|length }} probe(s)</span></div>
             <div class="filters" id="sec-filters">
@@ -331,8 +378,104 @@ function filterTC(group, status, btn) {
 
 // ── Active state helper ───────────────────────────────────────────────────
 function setActive(btn, parentId) {
-    document.getElementById(parentId).querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
+    const parent = document.getElementById(parentId);
+    if (parent) {
+        parent.querySelectorAll('.f-btn').forEach(b => b.classList.remove('active'));
+    }
+    if (btn) {
+        btn.classList.add('active');
+    }
+}
+
+// ── Global Filter logic ───────────────────────────────────────────────────
+function applyGlobalFilter(type, btn) {
+    // 1. Reset all stat card active states
+    document.querySelectorAll('.stat').forEach(s => {
+        s.classList.remove('active-total', 'active-success', 'active-failed', 'active-vulns');
+    });
+
+    // 2. Add active class based on selected type
+    if (type === 'all') {
+        btn.classList.add('active-total');
+        
+        // Show all sections
+        document.getElementById('sec-audit-section').classList.remove('hidden');
+        document.getElementById('func-tests-section').classList.remove('hidden');
+        document.getElementById('sec-probes-section').classList.remove('hidden');
+
+        // Reset section filters to "All"
+        const vulnAllBtn = document.querySelector('#vuln-filters button');
+        const funcAllBtn = document.querySelector('#func-filters button');
+        const secAllBtn = document.querySelector('#sec-filters button');
+
+        if (vulnAllBtn) filterVulns('all', vulnAllBtn);
+        if (funcAllBtn) filterTC('func', 'all', funcAllBtn);
+        if (secAllBtn) filterTC('sec', 'all', secAllBtn);
+        
+    } else if (type === 'success') {
+        btn.classList.add('active-success');
+
+        // Success means only showing functional tests that passed and security probes that are safe.
+        // Hiding security audit findings (since they are only vulnerabilities)
+        document.getElementById('sec-audit-section').classList.add('hidden');
+        document.getElementById('func-tests-section').classList.remove('hidden');
+        document.getElementById('sec-probes-section').classList.remove('hidden');
+
+        // Filter functional to "pass" and security to "safe"
+        const funcPassBtn = document.querySelector('#func-filters .f-pass');
+        const secSafeBtn = document.querySelector('#sec-filters .f-safe');
+
+        if (funcPassBtn) filterTC('func', 'pass', funcPassBtn);
+        if (secSafeBtn) filterTC('sec', 'safe', secSafeBtn);
+
+    } else if (type === 'failed') {
+        btn.classList.add('active-failed');
+
+        // Failed means showing security audit vulnerabilities, failed functional tests, and failed/vulnerable security probes.
+        document.getElementById('sec-audit-section').classList.remove('hidden');
+        document.getElementById('func-tests-section').classList.remove('hidden');
+        document.getElementById('sec-probes-section').classList.remove('hidden');
+
+        // Set section button highlights
+        const vulnAllBtn = document.querySelector('#vuln-filters button');
+        const funcFailBtn = document.querySelector('#func-filters .f-fail');
+        const secVulnBtn = document.querySelector('#sec-filters .f-vuln');
+
+        if (vulnAllBtn) setActive(vulnAllBtn, 'vuln-filters');
+        if (funcFailBtn) setActive(funcFailBtn, 'func-filters');
+        if (secVulnBtn) setActive(secVulnBtn, 'sec-filters');
+
+        // Filter vulnerabilities list to show all
+        document.querySelectorAll('#vuln-list .vuln').forEach(el => el.classList.remove('hidden'));
+
+        // Filter functional tests to show fail OR err
+        document.querySelectorAll('#func-list .tc').forEach(el => {
+            const status = el.dataset.status;
+            el.classList.toggle('hidden', status !== 'fail' && status !== 'err');
+        });
+
+        // Filter security probes to show vuln OR err
+        document.querySelectorAll('#sec-list .tc').forEach(el => {
+            const status = el.dataset.status;
+            el.classList.toggle('hidden', status !== 'vuln' && status !== 'err');
+        });
+
+    } else if (type === 'vulns') {
+        btn.classList.add('active-vulns');
+
+        // Vulnerabilities means showing security audit findings and vulnerable security probes.
+        // Hiding functional tests section entirely.
+        document.getElementById('sec-audit-section').classList.remove('hidden');
+        document.getElementById('func-tests-section').classList.add('hidden');
+        document.getElementById('sec-probes-section').classList.remove('hidden');
+
+        // Highlight filters
+        const vulnAllBtn = document.querySelector('#vuln-filters button');
+        const secVulnBtn = document.querySelector('#sec-filters .f-vuln');
+
+        if (vulnAllBtn) filterVulns('all', vulnAllBtn);
+        if (secVulnBtn) filterTC('sec', 'vuln', secVulnBtn);
+    }
 }
 
 // ── Open first failing item by default ───────────────────────────────────
