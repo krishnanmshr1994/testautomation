@@ -170,10 +170,11 @@ async def run_automation(target: str,
         "target_url": target,
         "generated_at": datetime.now(nyc_tz).strftime("%Y-%m-%d %H:%M:%S"),
         "summary": {
-            "total_actions": sum(r.get("summary", {}).get("total_actions", 0) for r in results if r),
-            "successful_actions": sum(r.get("summary", {}).get("successful_actions", 0) for r in results if r),
-            "failed_actions": sum(r.get("summary", {}).get("failed_actions", 0) for r in results if r),
-            "vulnerabilities_found": sum(r.get("summary", {}).get("vulnerabilities_found", 0) for r in results if r)
+            "total_pages_scanned": len(results),
+            "total_actions": sum(r.get("summary", {}).get("total_actions", 0) for r in results if r and isinstance(r, dict)),
+            "successful_actions": sum(r.get("summary", {}).get("successful_actions", 0) for r in results if r and isinstance(r, dict)),
+            "failed_actions": sum(r.get("summary", {}).get("failed_actions", 0) for r in results if r and isinstance(r, dict)),
+            "vulnerabilities_found": sum(r.get("summary", {}).get("vulnerabilities_found", 0) for r in results if r and isinstance(r, dict))
         },
         "static_audit": { "vulnerabilities": [] },
         "execution_results": []
