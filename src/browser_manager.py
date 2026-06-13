@@ -12,6 +12,7 @@ from src.settings_loader import get_concurrency_settings, get_timeout_settings
 _playwright = None
 _browser: Browser = None
 _last_successful_provider_idx: int = 0
+_provider_cooldowns: dict = {}  # provider_name -> epoch timestamp when cooldown expires
 
 # ── Model Pools (round-robin across free-tier models) ──────────────────
 # Each model has its own independent rate-limit bucket on OpenRouter.
@@ -355,7 +356,7 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 return await ask_llm_fast(messages=messages, temperature=temperature)
         else:
             # Non-OpenRouter path 
-            global _last_successful_provider_idx
+            global _last_successful_provider_idx, _provider_cooldowns, _total_tokens_consumed
             providers = get_provider_priority()
             if not providers:
                 providers = ["mistral"]
@@ -367,6 +368,8 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 ]
             timeouts = get_timeout_settings()
             non_or_timeout = timeouts.get("non_openrouter_llm_timeout", 120.0)
+            concurrency_cfg = get_concurrency_settings()
+            cooldown_secs = concurrency_cfg.get("provider_cooldown_secs", 62.0)
             
             max_attempts = 5
             backoff_factor = 2.0
@@ -375,7 +378,15 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
             
             for attempt in range(max_attempts):
                 # Dynamically resolve provider client and model at start of attempt
-                current_provider_idx = _last_successful_provider_idx % len(providers)
+                # Skip any provider still in cooldown — pick the next available one
+                now = time.time()
+                base_idx = _last_successful_provider_idx % len(providers)
+                current_provider_idx = base_idx
+                for offset in range(len(providers)):
+                    candidate_idx = (base_idx + offset) % len(providers)
+                    if _provider_cooldowns.get(providers[candidate_idx], 0) <= now:
+                        current_provider_idx = candidate_idx
+                        break
                 provider_name = providers[current_provider_idx]
                 client, model_name = get_provider_client_and_model(provider_name, model_type)
                 
@@ -404,32 +415,62 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                     if hasattr(response, "usage") and response.usage:
                         total_tokens = getattr(response.usage, "total_tokens", 0)
                         if total_tokens > 0:
-                            global _total_tokens_consumed
                             _total_tokens_consumed += total_tokens
                             await stream_log(f"[Token Tracker] Model '{model_name}' consumed {total_tokens:,} tokens. Session total: {_total_tokens_consumed:,}")
                     _last_successful_provider_idx = current_provider_idx
                     return response.choices[0].message.content or "", None
 
                 except Exception as e:
-                    err_str = str(e).lower()
-                    
-                    # If we have multiple providers, failover to the next one in the priority list (round-robin loop)
+                    # Stamp the failing provider with a configurable cooldown
+                    _provider_cooldowns[provider_name] = time.time() + cooldown_secs
+                    await stream_log(
+                        f"[LLM Failover] Request to '{provider_name}' failed ({e}). "
+                        f"Cooling down '{provider_name}' for {cooldown_secs:.0f}s."
+                    )
+
                     if len(providers) > 1:
-                        next_provider_idx = (current_provider_idx + 1) % len(providers)
-                        next_provider = providers[next_provider_idx]
-                        
-                        # Globally update provider index to avoid other concurrent requests hitting the rate-limited provider
+                        # Scan all providers in priority order (starting after the failed one)
+                        # to find the best available provider not currently in cooldown.
+                        now = time.time()
+                        next_provider = None
+                        next_provider_idx = None
+                        for offset in range(1, len(providers)):
+                            candidate_idx = (current_provider_idx + offset) % len(providers)
+                            candidate = providers[candidate_idx]
+                            if _provider_cooldowns.get(candidate, 0) <= now:
+                                next_provider = candidate
+                                next_provider_idx = candidate_idx
+                                break
+
+                        # All providers are in cooldown — wait for the shortest remaining cooldown
+                        if next_provider is None:
+                            min_wait = min(
+                                max(0.0, _provider_cooldowns.get(p, 0) - time.time())
+                                for p in providers
+                            )
+                            best_idx = min(
+                                range(len(providers)),
+                                key=lambda i: _provider_cooldowns.get(providers[i], 0)
+                            )
+                            next_provider_idx = best_idx
+                            next_provider = providers[best_idx]
+                            await stream_log(
+                                f"[Rate Limiter] All providers in cooldown. "
+                                f"Waiting {min_wait:.1f}s before retrying '{next_provider}'..."
+                            )
+                            await asyncio.sleep(min_wait + 0.5)  # +0.5s buffer
+                        else:
+                            await stream_log(
+                                f"[LLM Failover] Rotating to next available provider: '{next_provider}'..."
+                            )
+
+                        # Globally shift so other concurrent tasks also pick the new provider
                         _last_successful_provider_idx = next_provider_idx
-                        
-                        await stream_log(
-                            f"[LLM Failover] Request to '{provider_name}' failed ({e}). "
-                            f"Rotating to next provider in list: '{next_provider}'..."
-                        )
                         try:
                             client, model_name = get_provider_client_and_model(next_provider, model_type)
                             current_provider_idx = next_provider_idx
                             provider_name = next_provider
-                            continue # retry immediately using the next provider in the loop
+                            continue  # retry immediately on the chosen provider
                         except Exception as failover_err:
                             await stream_log(f"[Failover Error] Failed to switch to {next_provider}: {failover_err}")
 

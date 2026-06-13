@@ -215,7 +215,6 @@ IMPORTANT RULES:
 2. For security probes (like XSS/SQLi), if the payload is reflected unsanitized or causes an error trace, mark it as FAILED (vulnerable). If it is blocked or sanitized, mark it as SUCCESS (secure).
 3. Respond ONLY with JSON: {{"success": true/false, "details": "One sentence explaining verdict"}}
 """
-                from src.browser_manager import ask_llm_fast_json_with_healing
                 try:
                     verify_data = await ask_llm_fast_json_with_healing(
                         verify_prompt,
