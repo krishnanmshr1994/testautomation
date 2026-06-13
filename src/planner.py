@@ -199,6 +199,8 @@ Generate a JSON test plan with a list of test intents. Each intent must have:
 - attack_type: If it IS a security probe, specify the attack class (e.g., "XSS", "SQLi", "SSRF", "SSTI", "LFI", "CommandInjection"). Otherwise, leave null.
 - press_enter_after_fill: By default, you MUST set this to false. You are ONLY allowed to set it to true if you are 100% certain that the field is a standalone text input (like a search bar) AND there are absolutely zero actionable buttons (Save, Submit, Search, Go) available on the form. If you are unsure, set it to false.
 
+CRITICAL: DO NOT generate passive security/audit test cases that do not target specific, interactive page elements (such as testing for missing HTTP security headers, clickjacking/X-Frame-Options, SSL certificates, cookies, or port scanning). These passive checks are already handled in a separate static audit phase. Every test intent you generate MUST interact with one of the extracted page elements (e.g., input fields, links, buttons) via click or fill.
+
 Include the following types of tests based on the user's request:
 """
     if run_functional:
