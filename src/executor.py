@@ -191,19 +191,38 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
                         try:
                             await element.click(timeout=timeouts.get("element_click", 10000))
                         except Exception:
-                            await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
+                            try:
+                                await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
+                            except Exception:
+                                try:
+                                    await element.dispatch_event("click")
+                                except Exception:
+                                    await element.evaluate("el => el.click()")
                     else:
-                        await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
+                        try:
+                            await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
+                        except Exception:
+                            # Fallback: direct JS evaluation
+                            await element.evaluate(f"el => {{ el.value = {json.dumps(str(payload))}; el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); }}")
                         if intent.is_security_probe or getattr(intent, "press_enter_after_fill", False):
-                            await element.press("Enter", timeout=timeouts.get("element_press", 5000))
+                            try:
+                                await element.press("Enter", timeout=timeouts.get("element_press", 5000))
+                            except Exception:
+                                pass
                 elif action == "press":
                     await element.press(str(payload) if payload else "Enter", timeout=timeouts.get("element_fill", 10000))
                 else:
-                    # Try normal click first (respects visibility), fall back to force click
+                    # Try normal click first (respects visibility), fall back to force click, and finally JS click
                     try:
                         await element.click(timeout=timeouts.get("element_click", 10000))
                     except Exception:
-                        await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
+                        try:
+                            await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
+                        except Exception:
+                            try:
+                                await element.dispatch_event("click")
+                            except Exception:
+                                await element.evaluate("el => el.click()")
 
                 step_result["action_success"] = True
 
