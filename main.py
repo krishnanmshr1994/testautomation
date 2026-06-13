@@ -173,13 +173,31 @@ async def run_automation(target: str,
         "execution_results": []
     }
     
+    seen_vulns = set()
+    deduped_vulnerabilities = []
+    
     for r in results:
         if isinstance(r, Exception) or not r: 
             continue
         if r.get("static_audit") and r["static_audit"].get("vulnerabilities"):
-            master_report["static_audit"]["vulnerabilities"].extend(r["static_audit"]["vulnerabilities"])
+            for v in r["static_audit"]["vulnerabilities"]:
+                import re
+                evidence_norm = re.sub(r'\s+', ' ', str(v.get("evidence", ""))).strip().lower()
+                fingerprint = (
+                    str(v.get("title", "")).strip().lower(),
+                    str(v.get("owasp_category", "")).strip().lower(),
+                    str(v.get("cwe_id", "")).strip().lower(),
+                    str(v.get("severity", "")).strip().lower(),
+                    evidence_norm
+                )
+                if fingerprint not in seen_vulns:
+                    seen_vulns.add(fingerprint)
+                    deduped_vulnerabilities.append(v)
         if r.get("execution_results"):
             master_report["execution_results"].extend(r["execution_results"])
+            
+    master_report["static_audit"]["vulnerabilities"] = deduped_vulnerabilities
+    master_report["summary"]["vulnerabilities_found"] = len(deduped_vulnerabilities)
             
     with open(os.path.join(run_dir, "report.json"), "w", encoding="utf-8") as f:
         json.dump(master_report, f, indent=2)
