@@ -174,6 +174,29 @@
         .empty{color:var(--muted);font-size:.88rem;font-style:italic;padding:16px 0;}
         .hidden{display:none!important;}
 
+        .empty-placeholder-card {
+            background: rgba(255, 255, 255, 0.015);
+            border: 1px dashed rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            padding: 40px 24px;
+            text-align: center;
+            margin: 10px 0;
+            animation: fadeIn 0.3s ease;
+        }
+        .empty-placeholder-card h3 {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 6px;
+        }
+        .empty-placeholder-card p {
+            font-size: 0.88rem;
+            color: var(--muted);
+            max-width: 320px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+
         @keyframes fadeIn{from{opacity:0;transform:translateY(-4px);}to{opacity:1;transform:translateY(0);}}
         .vuln-body,.tc-body{animation:fadeIn .2s ease;}
     </style>
@@ -366,6 +389,7 @@ function filterVulns(sev, btn) {
     document.querySelectorAll('#vuln-list .vuln').forEach(el => {
         el.classList.toggle('hidden', sev !== 'all' && el.dataset.sev !== sev);
     });
+    checkEmptyStates();
 }
 
 // ── Filter test case cards ─────────────────────────────────────────────────
@@ -374,6 +398,7 @@ function filterTC(group, status, btn) {
     document.querySelectorAll(`#${group}-list .tc`).forEach(el => {
         el.classList.toggle('hidden', status !== 'all' && el.dataset.status !== status);
     });
+    checkEmptyStates();
 }
 
 // ── Active state helper ───────────────────────────────────────────────────
@@ -385,6 +410,152 @@ function setActive(btn, parentId) {
     if (btn) {
         btn.classList.add('active');
     }
+}
+
+// ── Empty State Check Logic ────────────────────────────────────────────────
+function checkEmptyStates() {
+    // SVGs for empty states
+    const emptySuccessSvg = `
+    <svg width="120" height="120" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin: 0 auto 16px; display: block;">
+        <circle cx="100" cy="100" r="70" fill="url(#successGlow)" opacity="0.1" />
+        <circle cx="100" cy="100" r="50" stroke="rgba(16, 185, 129, 0.15)" stroke-width="2" stroke-dasharray="4 4" />
+        <!-- Shield outline -->
+        <path d="M 100 55 C 115 55 130 50 140 42 C 140 85 130 115 100 135 C 70 115 60 85 60 42 C 70 50 85 55 100 55 Z" stroke="var(--green)" stroke-width="3" stroke-linejoin="round" opacity="0.8" />
+        <!-- Floating bubbles/stars -->
+        <circle cx="70" cy="120" r="3" fill="var(--green)" opacity="0.5" />
+        <circle cx="135" cy="70" r="4" fill="var(--green)" opacity="0.3" />
+        <path d="M 85 100 L 95 110 L 120 85" stroke="var(--green)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+        <defs>
+            <radialGradient id="successGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="var(--green)" />
+                <stop offset="100%" stop-color="transparent" />
+            </radialGradient>
+        </defs>
+    </svg>`;
+
+    const emptyFailSvg = `
+    <svg width="120" height="120" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin: 0 auto 16px; display: block;">
+        <circle cx="100" cy="100" r="70" fill="url(#failGlow)" opacity="0.1" />
+        <circle cx="100" cy="100" r="50" stroke="rgba(239, 68, 68, 0.15)" stroke-width="2" stroke-dasharray="4 4" />
+        <!-- Shield outline -->
+        <path d="M 100 55 C 115 55 130 50 140 42 C 140 85 130 115 100 135 C 70 115 60 85 60 42 C 70 50 85 55 100 55 Z" stroke="var(--red)" stroke-width="3" stroke-linejoin="round" opacity="0.8" />
+        <circle cx="70" cy="120" r="3" fill="var(--red)" opacity="0.5" />
+        <circle cx="135" cy="70" r="4" fill="var(--red)" opacity="0.3" />
+        <!-- Cross in shield -->
+        <path d="M 90 90 L 110 110 M 110 90 L 90 110" stroke="var(--red)" stroke-width="4" stroke-linecap="round" />
+        <defs>
+            <radialGradient id="failGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="var(--red)" />
+                <stop offset="100%" stop-color="transparent" />
+            </radialGradient>
+        </defs>
+    </svg>`;
+
+    const emptyGenericSvg = `
+    <svg width="120" height="120" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" style="margin: 0 auto 16px; display: block;">
+        <circle cx="100" cy="100" r="60" fill="url(#genericGlow)" opacity="0.15" />
+        <rect x="70" y="55" width="60" height="75" rx="8" fill="rgba(30,41,68,0.6)" stroke="rgba(255,255,255,0.1)" stroke-width="2" />
+        <path d="M 85 75 L 115 75" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" opacity="0.4" />
+        <path d="M 85 90 L 105 90" stroke="var(--muted)" stroke-width="2" stroke-linecap="round" opacity="0.4" />
+        <circle cx="120" cy="115" r="18" fill="var(--bg)" stroke="url(#accentGrad)" stroke-width="3" />
+        <path d="M 133 128 L 145 140" stroke="var(--primary)" stroke-width="3" stroke-linecap="round" />
+        <defs>
+            <radialGradient id="genericGlow" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stop-color="var(--primary)" />
+                <stop offset="100%" stop-color="transparent" />
+            </radialGradient>
+            <linearGradient id="accentGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="var(--primary)" />
+                <stop offset="100%" stop-color="var(--purple)" />
+            </linearGradient>
+        </defs>
+    </svg>`;
+
+    // Define sections check list
+    const sections = [
+        {
+            listId: 'vuln-list',
+            emptyId: 'vuln-empty-placeholder',
+            itemSelector: '.vuln',
+            title: 'No Vulnerabilities Found',
+            desc: 'Zero security vulnerabilities identified in the audit for this criteria.',
+            icon: emptyGenericSvg
+        },
+        {
+            listId: 'func-list',
+            emptyId: 'func-empty-placeholder',
+            itemSelector: '.tc',
+            title: 'No Matching Functional Tests',
+            desc: 'No functional tests match the currently active filter.',
+            icon: emptyGenericSvg
+        },
+        {
+            listId: 'sec-list',
+            emptyId: 'sec-empty-placeholder',
+            itemSelector: '.tc',
+            title: 'No Matching Security Probes',
+            desc: 'No security probe results match the currently active filter.',
+            icon: emptyGenericSvg
+        }
+    ];
+
+    // Determine current global filter type to customize empty messages
+    const activeStat = document.querySelector('.stat.active-success, .stat.active-failed, .stat.active-vulns, .stat.active-total');
+    let globalFilter = 'all';
+    if (activeStat) {
+        if (activeStat.id === 'stat-passed') globalFilter = 'success';
+        else if (activeStat.id === 'stat-failed') globalFilter = 'failed';
+        else if (activeStat.id === 'stat-vulns') globalFilter = 'vulns';
+    }
+
+    sections.forEach(sec => {
+        const list = document.getElementById(sec.listId);
+        if (!list) return;
+
+        // Count visible items
+        const items = list.querySelectorAll(sec.itemSelector);
+        let visibleCount = 0;
+        items.forEach(el => {
+            if (!el.classList.contains('hidden')) {
+                visibleCount++;
+            }
+        });
+
+        let placeholder = document.getElementById(sec.emptyId);
+        if (visibleCount === 0) {
+            // Customize title/description/icon based on current active state
+            let currentTitle = sec.title;
+            let currentDesc = sec.desc;
+            let currentIcon = sec.icon;
+
+            if (globalFilter === 'success') {
+                currentTitle = 'No Successful Test Cases';
+                currentDesc = 'There are 0 passes identified in this run.';
+                currentIcon = emptySuccessSvg;
+            } else if (globalFilter === 'failed') {
+                currentTitle = 'No Failed Test Cases';
+                currentDesc = 'Perfect run! There are no failed test cases for this category.';
+                currentIcon = emptyFailSvg;
+            }
+
+            if (!placeholder) {
+                placeholder = document.createElement('div');
+                placeholder.id = sec.emptyId;
+                placeholder.className = 'empty-placeholder-card';
+                list.appendChild(placeholder);
+            }
+            placeholder.innerHTML = `
+                ${currentIcon}
+                <h3>${currentTitle}</h3>
+                <p>${currentDesc}</p>
+            `;
+            placeholder.classList.remove('hidden');
+        } else {
+            if (placeholder) {
+                placeholder.classList.add('hidden');
+            }
+        }
+    });
 }
 
 // ── Global Filter logic ───────────────────────────────────────────────────
@@ -416,7 +587,7 @@ function applyGlobalFilter(type, btn) {
         btn.classList.add('active-success');
 
         // Success means only showing functional tests that passed and security probes that are safe.
-        // Hiding security audit findings (since they are only vulnerabilities)
+        // Hiding security audit findings entirely.
         document.getElementById('sec-audit-section').classList.add('hidden');
         document.getElementById('func-tests-section').classList.remove('hidden');
         document.getElementById('sec-probes-section').classList.remove('hidden');
@@ -425,28 +596,33 @@ function applyGlobalFilter(type, btn) {
         const funcPassBtn = document.querySelector('#func-filters .f-pass');
         const secSafeBtn = document.querySelector('#sec-filters .f-safe');
 
-        if (funcPassBtn) filterTC('func', 'pass', funcPassBtn);
-        if (secSafeBtn) filterTC('sec', 'safe', secSafeBtn);
+        if (funcPassBtn) {
+            filterTC('func', 'pass', funcPassBtn);
+        } else {
+            document.querySelectorAll('#func-list .tc').forEach(el => el.classList.add('hidden'));
+        }
+        
+        if (secSafeBtn) {
+            filterTC('sec', 'safe', secSafeBtn);
+        } else {
+            document.querySelectorAll('#sec-list .tc').forEach(el => el.classList.add('hidden'));
+        }
 
     } else if (type === 'failed') {
         btn.classList.add('active-failed');
 
-        // Failed means showing security audit vulnerabilities, failed functional tests, and failed/vulnerable security probes.
-        document.getElementById('sec-audit-section').classList.remove('hidden');
+        // Failed means showing failed functional tests and failed/vulnerable security probes.
+        // Hiding security audit findings entirely (per user request).
+        document.getElementById('sec-audit-section').classList.add('hidden');
         document.getElementById('func-tests-section').classList.remove('hidden');
         document.getElementById('sec-probes-section').classList.remove('hidden');
 
         // Set section button highlights
-        const vulnAllBtn = document.querySelector('#vuln-filters button');
         const funcFailBtn = document.querySelector('#func-filters .f-fail');
         const secVulnBtn = document.querySelector('#sec-filters .f-vuln');
 
-        if (vulnAllBtn) setActive(vulnAllBtn, 'vuln-filters');
         if (funcFailBtn) setActive(funcFailBtn, 'func-filters');
         if (secVulnBtn) setActive(secVulnBtn, 'sec-filters');
-
-        // Filter vulnerabilities list to show all
-        document.querySelectorAll('#vuln-list .vuln').forEach(el => el.classList.remove('hidden'));
 
         // Filter functional tests to show fail OR err
         document.querySelectorAll('#func-list .tc').forEach(el => {
@@ -463,25 +639,27 @@ function applyGlobalFilter(type, btn) {
     } else if (type === 'vulns') {
         btn.classList.add('active-vulns');
 
-        // Vulnerabilities means showing security audit findings and vulnerable security probes.
-        // Hiding functional tests section entirely.
+        // Vulnerabilities means showing only security audit findings.
+        // Hiding functional tests and security probes sections entirely.
         document.getElementById('sec-audit-section').classList.remove('hidden');
         document.getElementById('func-tests-section').classList.add('hidden');
-        document.getElementById('sec-probes-section').classList.remove('hidden');
+        document.getElementById('sec-probes-section').classList.add('hidden');
 
         // Highlight filters
         const vulnAllBtn = document.querySelector('#vuln-filters button');
-        const secVulnBtn = document.querySelector('#sec-filters .f-vuln');
-
         if (vulnAllBtn) filterVulns('all', vulnAllBtn);
-        if (secVulnBtn) filterTC('sec', 'vuln', secVulnBtn);
     }
+
+    checkEmptyStates();
 }
 
 // ── Open first failing item by default ───────────────────────────────────
 document.querySelectorAll('.tc.fail, .tc.vuln, .tc.err').forEach((el, i) => {
     if (i === 0) el.classList.add('open');
 });
+
+// Run empty state checks on initial page load
+checkEmptyStates();
 </script>
 </body>
 </html>

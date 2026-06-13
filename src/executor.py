@@ -119,6 +119,7 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
             element = await page.query_selector(selector)
             if not element:
                 step_result["error"] = f"Selector '{selector}' not found on page."
+                await stream_log(f"❌ Failed: Selector '{selector}' not found on page.")
                 results.append(step_result)
                 if live_reporter:
                     await live_reporter.record(intent, step_result)
@@ -149,6 +150,7 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
             except Exception as action_err:
                 step_result["error"] = f"Action failed on '{selector}': {str(action_err)[:120]}"
                 step_result["details"] = "Element found but could not be interacted with."
+                await stream_log(f"❌ Failed: Action failed on '{selector}': {str(action_err)[:120]}")
                 results.append(step_result)
                 if live_reporter:
                     await live_reporter.record(intent, step_result)

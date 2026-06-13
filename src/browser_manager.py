@@ -94,6 +94,7 @@ async def distill_dom(page) -> str:
     """
     Executes a JavaScript minifier in the browser to strip out non-semantic
     elements (scripts, styles, svgs, classes) and returns a clean HTML skeleton.
+    Repeats are collapsed/pruned to prevent token limits from being exceeded.
     """
     js_code = """() => {
         // Capture native HTML5 validation messages from the real DOM before cloning
@@ -117,6 +118,38 @@ async def distill_dom(page) -> str:
             el.removeAttribute('data-testid');
             el.removeAttribute('width');
             el.removeAttribute('height');
+        });
+
+        // Prune repeating sibling elements to keep DOM compact
+        const pruneRepeatingSiblings = (parent, selector, maxCount = 8) => {
+            if (!parent) return;
+            const children = Array.from(parent.querySelectorAll(`:scope > ${selector}`));
+            if (children.length > maxCount) {
+                const keepStart = Math.max(1, maxCount - 3);
+                const keepEnd = 2;
+                for (let i = keepStart; i < children.length - keepEnd; i++) {
+                    children[i].remove();
+                }
+                const placeholder = document.createElement(selector);
+                placeholder.setAttribute('data-pruned', 'true');
+                placeholder.innerHTML = `[... Collapsed/Pruned ${children.length - keepStart - keepEnd} repeating ${selector} elements ...]`;
+                parent.insertBefore(placeholder, children[children.length - keepEnd]);
+            }
+        };
+
+        // Run pruning on tables, lists, select options
+        clone.querySelectorAll('table, tbody, thead, tr, ul, ol, select').forEach(container => {
+            pruneRepeatingSiblings(container, 'tr', 6);
+            pruneRepeatingSiblings(container, 'li', 6);
+            pruneRepeatingSiblings(container, 'option', 4);
+        });
+
+        // Also prune repeating anchor tags directly under any container
+        clone.querySelectorAll('*').forEach(parent => {
+            if (parent.children && parent.children.length > 15) {
+                pruneRepeatingSiblings(parent, 'a', 6);
+                pruneRepeatingSiblings(parent, 'div', 6);
+            }
         });
         
         let html = clone.innerHTML;
