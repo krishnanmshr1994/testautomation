@@ -72,15 +72,17 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
                 system="You are a Playwright automation expert. Respond only with JSON.",
                 max_retries=2
             )
-        except Exception:
-            action_data = {}
+        except Exception as e:
+            action_data = {"selector": None, "error": str(e)}
 
         if not action_data.get("selector"):
+            err_msg = action_data.get("error") or "LLM could not identify element selector."
+            await stream_log(f"❌ Skipped: {err_msg}")
             step_result = {
                 "intent": intent.model_dump(),
                 "action_success": False,
                 "verification_success": False,
-                "error": "LLM could not identify element selector.",
+                "error": err_msg,
                 "details": "No matching selector found."
             }
             results.append(step_result)

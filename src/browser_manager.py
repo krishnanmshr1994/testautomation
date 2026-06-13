@@ -11,6 +11,7 @@ from src.settings_loader import get_concurrency_settings, get_timeout_settings
 # Global references
 _playwright = None
 _browser: Browser = None
+_last_successful_provider_idx: int = 0
 
 # ── Model Pools (round-robin across free-tier models) ──────────────────
 # Each model has its own independent rate-limit bucket on OpenRouter.
@@ -318,8 +319,11 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                 return await ask_llm_fast(messages=messages, temperature=temperature)
         else:
             # Non-OpenRouter path 
+            global _last_successful_provider_idx
             providers = get_provider_priority()
-            current_provider_idx = 0
+            if not providers:
+                providers = ["mistral"]
+            current_provider_idx = _last_successful_provider_idx % len(providers)
             provider_name = providers[current_provider_idx]
             
             client, model_name = get_provider_client_and_model(provider_name, "fast" if temperature == 0.1 else "reasoning")
@@ -356,7 +360,7 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                             global _total_tokens_consumed
                             _total_tokens_consumed += total_tokens
                             await stream_log(f"[Token Tracker] Model '{model_name}' consumed {total_tokens:,} tokens. Session total: {_total_tokens_consumed:,}")
-
+                    _last_successful_provider_idx = current_provider_idx
                     return response.choices[0].message.content or "", None
 
                 except Exception as e:
