@@ -549,9 +549,13 @@ async def ask_llm_json_with_healing(prompt: str, system: str = "You are a QA and
             continue # Retry without modifying history for network errors
 
         try:
-            match = re.search(r'\{.*\}', content, re.DOTALL)
-            cleaned = match.group(0) if match else content
-            data = json.loads(cleaned)
+            # Find the first '{' and decode exactly one JSON object from that position.
+            # raw_decode() stops after the first valid object, ignoring any trailing text
+            # or additional JSON blocks the model may have appended.
+            start = content.find('{')
+            if start == -1:
+                raise ValueError("No JSON object found in response")
+            data, _ = json.JSONDecoder().raw_decode(content, start)
             if pydantic_model:
                 return pydantic_model(**data)
             return data
@@ -602,9 +606,13 @@ async def ask_llm_fast_json_with_healing(prompt: str, system: str = "You are a Q
             continue
 
         try:
-            match = re.search(r'\{.*\}', content, re.DOTALL)
-            cleaned = match.group(0) if match else content
-            data = json.loads(cleaned)
+            # Find the first '{' and decode exactly one JSON object from that position.
+            # raw_decode() stops after the first valid object, ignoring any trailing text
+            # or additional JSON blocks the model may have appended.
+            start = content.find('{')
+            if start == -1:
+                raise ValueError("No JSON object found in response")
+            data, _ = json.JSONDecoder().raw_decode(content, start)
             if pydantic_model:
                 return pydantic_model(**data)
             return data

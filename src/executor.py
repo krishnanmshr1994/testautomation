@@ -62,9 +62,11 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None) -> list:
 For the following action: "{intent.description}"
 
 Respond ONLY with a valid JSON object in this exact format (no explanation):
-{{"selector": "<css-selector>", "action": "click|fill|press"}}
+{{"selector": "<css-selector>", "action": "click|fill"}}
 
-If you cannot identify the element, respond with: {{"selector": null, "action": null}}
+- Use "fill" for text inputs, search boxes, textareas.
+- Use "click" for buttons, links, checkboxes, dropdowns, and everything else.
+- If you cannot identify the element, respond with: {{"selector": null, "action": null}}
 """
         try:
             action_data = await ask_llm_fast_json_with_healing(
@@ -98,7 +100,7 @@ If you cannot identify the element, respond with: {{"selector": null, "action": 
         if intent.is_security_probe and getattr(intent, "attack_type", None):
             test_payloads = payloads_data.get(intent.attack_type, ["<script>alert(1)</script>"])
             await stream_log(f"[Deep Scan] Testing {len(test_payloads)} payloads for {intent.attack_type} on '{selector}'")
-        elif action in ("fill", "press"):
+        elif action == "fill":
             # For functional tests, use a default value if one isn't explicitly extracted
             test_payloads = ["test_value"]
 
