@@ -403,6 +403,10 @@ async def ask_llm(prompt: str = None, system: str = "You are a QA and Security t
                     if len(providers) > 1:
                         next_provider_idx = (current_provider_idx + 1) % len(providers)
                         next_provider = providers[next_provider_idx]
+                        
+                        # Globally update provider index to avoid other concurrent requests hitting the rate-limited provider
+                        _last_successful_provider_idx = next_provider_idx
+                        
                         await stream_log(
                             f"[LLM Failover] Request to '{provider_name}' failed ({e}). "
                             f"Rotating to next provider in list: '{next_provider}'..."
