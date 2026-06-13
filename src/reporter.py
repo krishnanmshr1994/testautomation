@@ -146,6 +146,10 @@ class LiveReporter:
                     f.write(f"         Steps to Replicate:\n")
                     f.write(f"           1. Navigate to {self.target_url}\n")
                     f.write(f"           2. Perform action: {result.get('action_details', 'N/A')}\n")
+                    if result.get("playwright_repro"):
+                        f.write(f"           Playwright Script:\n")
+                        for line in result.get("playwright_repro").splitlines():
+                            f.write(f"             {line}\n")
 
     async def finalize(self) -> dict:
         """
@@ -187,6 +191,10 @@ class LiveReporter:
                         f.write(f"         Steps to Replicate:\n")
                         f.write(f"           1. Navigate to {self.target_url}\n")
                         f.write(f"           2. Perform action: {result.get('action_details', 'N/A')}\n")
+                        if result.get("playwright_repro"):
+                            f.write(f"           Playwright Script:\n")
+                            for line in result.get("playwright_repro").splitlines():
+                                f.write(f"             {line}\n")
             else:
                 f.write("  No security probe tests were generated.\n")
 
