@@ -22,8 +22,8 @@
         "nvidia": {
             "base_url": "https://integrate.api.nvidia.com/v1",
             "env_key": "NVIDIA_API_KEY",
-            "fast_model": "meta/llama-3.3-70b-instruct",
-            "reasoning_model": "meta/llama-3.3-70b-instruct"
+            "fast_model": "meta/llama-4-maverick-17b-128e-instruct",
+            "reasoning_model": "meta/llama-4-maverick-17b-128e-instruct"
         },
         "groq": {
             "base_url": "https://api.groq.com/openai/v1",
