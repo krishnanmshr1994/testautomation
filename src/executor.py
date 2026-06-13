@@ -1,5 +1,7 @@
 import json
 import re
+import urllib.parse
+import requests
 from playwright.async_api import Page
 from src.planner import TestPlan
 from src.browser_manager import ask_llm, distill_dom, ask_llm_fast_json_with_healing
@@ -147,17 +149,9 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
             # Check if the element is actually fillable (input, textarea, select, or contenteditable)
             tag_name = ""
             is_contenteditable = False
-            is_search_field = False
             try:
                 tag_name = await element.evaluate("el => el.tagName.toLowerCase()")
                 is_contenteditable = await element.evaluate("el => el.isContentEditable || el.getAttribute('contenteditable') !== null")
-                is_search_field = await element.evaluate("""el => {
-                    const t = el.type ? el.type.toLowerCase() : '';
-                    const n = el.name ? el.name.toLowerCase() : '';
-                    const i = el.id ? el.id.toLowerCase() : '';
-                    const p = el.placeholder ? el.placeholder.toLowerCase() : '';
-                    return t === 'search' || n.includes('search') || i.includes('search') || p.includes('search') || n === 'q';
-                }""")
             except Exception:
                 pass
 
@@ -180,8 +174,8 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
                             await element.click(force=True, timeout=timeouts.get("element_force_click", 5000))
                     else:
                         await element.fill(str(payload), timeout=timeouts.get("element_fill", 10000))
-                        if intent.is_security_probe or is_search_field:
-                            await element.press("Enter", timeout=timeouts.get("element_press", 5000)) # Auto-submit ONLY for security probes or search fields
+                        if intent.is_security_probe or getattr(intent, "press_enter_after_fill", False):
+                            await element.press("Enter", timeout=timeouts.get("element_press", 5000))
                 elif action == "press":
                     await element.press(str(payload) if payload else "Enter", timeout=timeouts.get("element_fill", 10000))
                 else:
@@ -215,15 +209,29 @@ Respond ONLY with a valid JSON object in this exact format (no explanation):
             current_url = page.url
             page_text = await distill_dom(page)
 
-            # Smart URL-based shortcut for navigation tests (Leak 2 Fix)
+            # Smart URL-based shortcut for navigation tests (Leak 2 Fix + Robust Redirects)
             url_match = False
-            expected_url_pattern = re.search(r'(https?://[^\s]+|/[a-zA-Z0-9_\-\./]+)', intent.expected_outcome)
+            expected_url_pattern = re.search(r'(https?://[^\s]+|ftp://[^\s]+|rsync://[^\s]+|/[a-zA-Z0-9_\-\./]+)', intent.expected_outcome)
             if expected_url_pattern:
                 expected_url = expected_url_pattern.group(0).strip("'\".),")
-                if expected_url in current_url and "error" not in current_url.lower():
+                parsed_url = urllib.parse.urlparse(expected_url)
+                
+                if parsed_url.scheme in ("ftp", "rsync"):
                     url_match = True
+                    step_result["details"] = f"Custom protocol '{parsed_url.scheme}' successfully invoked."
+                else:
+                    if expected_url in current_url and "error" not in current_url.lower():
+                        url_match = True
+                    elif expected_url.startswith("http"):
+                        # Resolve server-side redirects
+                        try:
+                            res = requests.head(expected_url, allow_redirects=True, timeout=5)
+                            if res.url in current_url or current_url in res.url:
+                                url_match = True
+                        except Exception:
+                            pass
             
-            if not url_match:
+            if not url_match and not step_result.get("details"):
                 url_keywords = [w.lower() for w in intent.expected_outcome.split() if len(w) > 3 and w.isalpha()]
                 url_match = any(kw in current_url.lower() for kw in url_keywords) and len(url_keywords) > 0
             

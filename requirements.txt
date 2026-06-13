@@ -5,3 +5,5 @@ python-dotenv
 pytest
 rich
 quart
+requests
+playwright-stealth

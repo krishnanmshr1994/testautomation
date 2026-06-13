@@ -10,6 +10,7 @@ class TestIntent(BaseModel):
     expected_outcome: str = Field(..., description="Expected result after the action")
     is_security_probe: bool = Field(False, description="True if this injects a security payload")
     attack_type: Optional[str] = Field(None, description="The category of attack (e.g. XSS, SQLi) if this is a security probe")
+    press_enter_after_fill: bool = Field(False, description="Set to true ONLY if there is no submit button and Enter is required to submit.")
 
 class TestPlan(BaseModel):
     intents: List[TestIntent]
@@ -196,6 +197,7 @@ Generate a JSON test plan with a list of test intents. Each intent must have:
 - expected_outcome: What should happen after the action
 - is_security_probe: true if this is a security injection test, false otherwise
 - attack_type: If it IS a security probe, specify the attack class (e.g., "XSS", "SQLi", "SSRF", "SSTI", "LFI", "CommandInjection"). Otherwise, leave null.
+- press_enter_after_fill: By default, you MUST set this to false. You are ONLY allowed to set it to true if you are 100% certain that the field is a standalone text input (like a search bar) AND there are absolutely zero actionable buttons (Save, Submit, Search, Go) available on the form. If you are unsure, set it to false.
 
 Include the following types of tests based on the user's request:
 """
@@ -226,8 +228,8 @@ Choose defaults that make sense for the detected context.
 Respond ONLY with a JSON object in this exact format:
 {
   "intents": [
-    {"description": "...", "expected_outcome": "...", "is_security_probe": false, "attack_type": null},
-    {"description": "Inject XSS into search field", "expected_outcome": "Application blocks or sanitizes the payload", "is_security_probe": true, "attack_type": "XSS"}
+    {"description": "...", "expected_outcome": "...", "is_security_probe": false, "attack_type": null, "press_enter_after_fill": false},
+    {"description": "Inject XSS into search field", "expected_outcome": "Application blocks or sanitizes the payload", "is_security_probe": true, "attack_type": "XSS", "press_enter_after_fill": true}
   ]
 }
 """

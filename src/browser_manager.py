@@ -641,6 +641,13 @@ async def init_browser(url_or_html: str, is_html: bool = False):
     context: BrowserContext = await _browser.new_context()
     page: Page = await context.new_page()
 
+    # Apply stealth to bypass WAF/Cloudflare
+    try:
+        from playwright_stealth import stealth_async
+        await stealth_async(page)
+    except ImportError:
+        pass
+
     # Block tracking/analytics scripts to speed up loading and prevent noise
     async def block_trackers(route):
         url = route.request.url.lower()
