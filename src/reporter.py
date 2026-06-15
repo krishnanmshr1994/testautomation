@@ -66,7 +66,11 @@ class LiveReporter:
                     f.write(f"         OWASP     : {v.owasp_category or 'N/A'}\n")
                     f.write(f"         CWE       : {v.cwe_id or 'N/A'}\n")
                     f.write(f"         Evidence  : {v.evidence or 'N/A'}\n")
-                    f.write(f"         Fix       : {v.remediation or 'N/A'}\n\n")
+                    f.write(f"         Fix       : {v.remediation or 'N/A'}\n")
+                    f.write(f"         Steps to Replicate:\n")
+                    f.write(f"           1. Navigate to {self.target_url}\n")
+                    f.write(f"           2. Open browser Developer Tools or 'View Page Source'\n")
+                    f.write(f"           3. Locate the insecure element/evidence.\n\n")
             else:
                 f.write("  No static vulnerabilities found.\n\n")
 

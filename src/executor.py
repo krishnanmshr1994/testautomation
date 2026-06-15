@@ -138,15 +138,17 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
 
         # Fuzz the field
         for p_idx, payload in enumerate(test_payloads):
+            val_str = repr(str(payload)) if payload else "''"
+            enter_str = repr(str(payload)) if payload else "'Enter'"
             repro_code = f"await page.goto('{page.url}')\\n"
             if action == "fill":
-                repro_code += f"await page.fill(\\"{selector}\\", {repr(str(payload)) if payload else '\"\"'})\\n"
+                repro_code += f"await page.fill('{selector}', {val_str})\\n"
                 if intent.is_security_probe or getattr(intent, "press_enter_after_fill", False):
-                    repro_code += f"await page.press(\\"{selector}\\", \\"Enter\\")\\n"
+                    repro_code += f"await page.press('{selector}', 'Enter')\\n"
             elif action == "press":
-                repro_code += f"await page.press(\\"{selector}\\", {repr(str(payload)) if payload else '\\"Enter\\"'})\\n"
+                repro_code += f"await page.press('{selector}', {enter_str})\\n"
             else:
-                repro_code += f"await page.click(\\"{selector}\\")\\n"
+                repro_code += f"await page.click('{selector}')\\n"
 
             step_result = {
                 "intent": intent.model_dump(),
@@ -155,6 +157,7 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
                 "error": None,
                 "details": "",
                 "action_details": f"Playwright Action: {action.upper()} on selector '{selector}'" + (f" with payload '{payload}'" if payload else ""),
+                "steps_to_reproduce": f"1. Navigate to {page.url}\\n2. Perform action: {action.upper()} on selector '{selector}'" + (f" with payload '{payload}'" if payload else ""),
                 "playwright_repro": repro_code
             }
             

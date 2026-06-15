@@ -4,10 +4,12 @@ venv/
 ENV/
 env.bak/
 venv.bak/
+docs/
+.env
 
 # Environment Variables
 .env
-
+logs/
 # Reports / Output
 reports/
 report.json

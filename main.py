@@ -199,6 +199,7 @@ async def run_automation(target: str,
                 )
                 if fingerprint not in seen_vulns:
                     seen_vulns.add(fingerprint)
+                    v["steps_to_reproduce"] = f"1. Navigate to {target}\\n2. Open browser Developer Tools or 'View Page Source'\\n3. Locate the insecure element/evidence: {v.get('evidence', '')}"
                     deduped_vulnerabilities.append(v)
         if r.get("execution_results"):
             master_report["execution_results"].extend(r["execution_results"])
