@@ -49,12 +49,13 @@ async def run_single_page(url: str,
                           global_tested_elements: set,
                           global_fuzzed_targets: set,
                           page_index: int = 1,
-                          total_pages: int = 1) -> dict:
+                          total_pages: int = 1,
+                          auth_state: dict = None) -> dict:
     async with semaphore:
         await stream_log(f"\n[{url}] Starting automation (Page {page_index}/{total_pages})")
 
         try:
-            page = await init_browser(url, is_html)
+            page = await init_browser(url, is_html, storage_state=auth_state)
             if not page:
                 await stream_log(f"[{url}] Failed to load page.")
                 return {}
@@ -189,6 +190,7 @@ async def run_automation(target: str,
             await stream_log("[Base] Skipping login page tests — proceeding directly to login.")
 
     # ── Step 3b: Perform the actual login ────────────────────────────────────
+    auth_state = None
     if login_was_detected and extra_context:
         from src.planner import perform_login
         # Always re-navigate to the login page before attempting login
@@ -205,6 +207,14 @@ async def run_automation(target: str,
         if login_ok:
             post_login_url = discovery_page.url
             await stream_log(f"[Login] ✅ Authenticated. Now on: {post_login_url}")
+            
+            # Extract session cookies and local storage to share with parallel pages
+            try:
+                auth_state = await discovery_page.context.storage_state()
+                await stream_log(f"[Login] Successfully captured session state.")
+            except Exception as e:
+                await stream_log(f"[Login] Warning: could not capture session state: {e}")
+
             # If the login redirected somewhere other than the target, navigate to target
             try:
                 if post_login_url != target:
@@ -238,7 +248,8 @@ async def run_automation(target: str,
             run_audit, run_functional, run_probes, 
             context_queue, semaphore, run_dir,
             global_tested_elements, global_fuzzed_targets,
-            page_index=idx + 1, total_pages=total_pages
+            page_index=idx + 1, total_pages=total_pages,
+            auth_state=auth_state
         ))
         
     results = await asyncio.gather(*tasks, return_exceptions=True)

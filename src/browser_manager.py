@@ -627,7 +627,7 @@ async def ask_llm_fast_json_with_healing(prompt: str, system: str = "You are a Q
     raise ValueError(f"Fast model: failed to generate valid JSON after {max_retries} attempts. Last error: {last_error}")
 
 
-async def init_browser(url_or_html: str, is_html: bool = False):
+async def init_browser(url_or_html: str, is_html: bool = False, storage_state: dict = None):
     """
     Initializes a local Playwright browser (Chromium, headless).
     Returns the browser, context, and page objects.
@@ -639,7 +639,11 @@ async def init_browser(url_or_html: str, is_html: bool = False):
     if _browser is None:
         _browser = await _playwright.chromium.launch(headless=True)
         
-    context: BrowserContext = await _browser.new_context()
+    if storage_state:
+        context: BrowserContext = await _browser.new_context(storage_state=storage_state)
+    else:
+        context: BrowserContext = await _browser.new_context()
+        
     page: Page = await context.new_page()
 
     # Apply stealth to bypass WAF/Cloudflare
