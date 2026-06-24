@@ -126,9 +126,16 @@ If a field doesn't exist, use null."""
 
     try:
         if username and username_sel:
-            await page.fill(username_sel, username, timeout=5000)
+            # Use press_sequentially instead of fill. 
+            # Complex apps (Salesforce, React) often rely on keyup/keydown events to update internal state.
+            # Instant fill can bypass these, causing client-side validation to block submission.
+            await page.locator(username_sel).press_sequentially(username, delay=50, timeout=5000)
+            
         if password and password_sel:
-            await page.fill(password_sel, password, timeout=5000)
+            await page.locator(password_sel).press_sequentially(password, delay=50, timeout=5000)
+
+        # Small pause before submitting to mimic human behavior
+        await asyncio.sleep(0.5)
 
         if submit_sel:
             await page.click(submit_sel, timeout=5000)
@@ -143,8 +150,18 @@ If a field doesn't exist, use null."""
         return False
 
     post_login_url = page.url
+    
+    # Check if we are still on the login page (e.g. invalid credentials or anti-bot challenge)
+    try:
+        # If the password field is still visible, the login definitely failed
+        if password_sel and await page.is_visible(password_sel, timeout=2000):
+            await stream_log(f"[Login] ❌ Login failed! The login form is still present on the page. Check credentials or Salesforce IP restrictions.")
+            return False
+    except Exception:
+        pass
+
     if post_login_url != pre_login_url:
-        await stream_log(f"[Login] ✅ Login successful — navigated to: {post_login_url}")
+        await stream_log(f"[Login] ✅ Login successful — navigated away from login form to: {post_login_url}")
         return True
     else:
         await stream_log(f"[Login] ⚠️ URL unchanged after submission — login may have failed.")
