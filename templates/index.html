@@ -136,11 +136,16 @@
             line-height: 1.5;
         }
 
-        /* Two-field credential layout */
+        /* Three-field credential layout */
         .cred-fields {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .cred-full-width {
+            grid-column: 1 / -1;
             margin-bottom: 4px;
         }
 
@@ -444,8 +449,15 @@
                 <label for="contextPassword">Password</label>
                 <input type="password" id="contextPassword" placeholder="Enter password" autocomplete="current-password">
             </div>
+            <div class="cred-field-wrap cred-full-width">
+                <label for="contextSid">Salesforce Session Cookie (sid) [Optional]</label>
+                <input type="password" id="contextSid" placeholder="Paste 'sid' cookie here to completely bypass login blocks">
+                <div style="font-size: 0.75rem; color: var(--muted); margin-top: 6px;">
+                    <strong>How to get sid:</strong> Log into Salesforce normally → Press F12 (DevTools) → Go to <strong>Application</strong> tab → <strong>Cookies</strong> → Copy the value of the <code>sid</code> cookie.
+                </div>
+            </div>
         </div>
-        <p class="skip-note">💡 Leave both blank to skip login and use default test values.</p>
+        <p class="skip-note">💡 Leave all fields blank to skip login and use default test values.</p>
     </div>
 
     <!-- Yes/No prompt — injected by AI for binary decisions -->
@@ -604,15 +616,18 @@ async function handleStart() {
 async function submitContext(url) {
     const username = document.getElementById("contextUsername").value.trim();
     const password = document.getElementById("contextPassword").value.trim();
+    const sid = document.getElementById("contextSid").value.trim();
+    
     // Build structured credential string that the backend parser understands
     let context = "";
-    if (username || password) {
-        context = `username: ${username}, password: ${password}`;
+    if (username || password || sid) {
+        context = `username: ${username}, password: ${password}, sid: ${sid}`;
     }
     awaitingCtx = false;
     document.getElementById("contextBox").style.display = "none";
     document.getElementById("contextUsername").value = "";
     document.getElementById("contextPassword").value = "";
+    document.getElementById("contextSid").value = "";
     setBtnText("⚙️ Continuing Automation...");
     setDisabled(true);
     setStage("plan", 55);

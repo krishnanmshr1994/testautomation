@@ -87,9 +87,19 @@ async def _perform_salesforce_login(page: Page, username: str, password: str) ->
     }
 
     try:
+        from urllib.parse import urlparse
+        current_host = urlparse(page.url).netloc
+        
+        # Determine the correct SOAP endpoint. If on lightning.force.com, fallback to login.salesforce.com
+        # If on my.salesforce.com, use that specific domain to respect "My Domain" login policies.
+        if "lightning.force.com" in current_host:
+            soap_endpoint = "https://login.salesforce.com/services/Soap/u/59.0"
+        else:
+            soap_endpoint = f"https://{current_host}/services/Soap/u/59.0"
+
         async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(
-                "https://login.salesforce.com/services/Soap/u/59.0",
+                soap_endpoint,
                 content=soap_body,
                 headers=headers
             )
@@ -172,21 +182,49 @@ async def perform_login(page: Page, credentials_text: str) -> bool:
 
     username = extract_field(credentials_text, "username", "user", "email", "login", "u")
     password = extract_field(credentials_text, "password", "pass", "pwd", "p")
+    sid = extract_field(credentials_text, "sid", "session", "sessionid", "token")
 
-    if not username and not password:
+    if not username and not password and not sid:
         await stream_log("[Login] Could not parse credentials from input. Skipping login.")
         return False
 
-    await stream_log(f"[Login] Parsed → username: {username or '(none)'}, password: {'*' * len(password) if password else '(none)'}")
+    await stream_log(f"[Login] Parsed → username: {username or '(none)'}, sid_provided: {'Yes' if sid else 'No'}")
+
+    # ── Direct Session ID Injection Path (Fastest & Most Reliable) ────────────
+    if sid:
+        from urllib.parse import urlparse
+        await stream_log("[Login] 🔑 Session ID provided. Injecting cookie directly to bypass login form...")
+        current_host = urlparse(page.url).netloc
+        domains_to_inject = set([current_host])
+        if "salesforce" in current_host or "force.com" in current_host:
+            domains_to_inject.update(["salesforce.com", "force.com", current_host])
+            
+        for domain in domains_to_inject:
+            if not domain: continue
+            await page.context.add_cookies([{
+                "name": "sid",
+                "value": sid,
+                "domain": f".{domain.lstrip('.')}",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "None"
+            }])
+        await stream_log("[Login] ✅ Session cookie successfully injected.")
+        return True
 
     # ── Route Salesforce domains to the SOAP API path ─────────────────────────
     from urllib.parse import urlparse
     current_host = urlparse(page.url).netloc
     SALESFORCE_DOMAINS = ("salesforce.com", "force.com", "my.salesforce.com")
     if any(current_host.endswith(d) for d in SALESFORCE_DOMAINS):
-        return await _perform_salesforce_login(page, username, password)
+        soap_success = await _perform_salesforce_login(page, username, password)
+        if soap_success:
+            return True
+        else:
+            await stream_log("[Login] ⚠️ SOAP API login failed. Falling back to manual browser form automation...")
 
-    # ── Standard form-fill path (for non-Salesforce sites) ────────────────────
+    # ── Standard form-fill path (for non-Salesforce sites & Fallback) ─────────
     # Get the current DOM to find login field selectors
     from src.browser_manager import distill_dom, ask_llm_fast_json_with_healing
 
