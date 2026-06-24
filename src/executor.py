@@ -262,7 +262,22 @@ async def execute_plan(page: Page, plan: TestPlan, live_reporter=None, global_fu
 
             # Capture post-action state: URL + distilled DOM
             current_url = page.url
-            page_text = await distill_dom(page)
+            try:
+                page_text = await distill_dom(page)
+            except Exception as e:
+                if "Execution context was destroyed" in str(e) or "Target page, context or browser has been closed" in str(e):
+                    await stream_log("  [Warning] Page is navigating/reloading. Waiting for it to settle...")
+                    import asyncio
+                    await asyncio.sleep(3)
+                    try:
+                        page_text = await distill_dom(page)
+                        current_url = page.url
+                    except Exception as retry_e:
+                        await stream_log(f"  [Error] Failed to read page after navigation: {retry_e}")
+                        page_text = ""
+                else:
+                    await stream_log(f"  [Error] DOM Extraction failed: {e}")
+                    page_text = ""
 
             # Smart URL-based shortcut for navigation tests (Leak 2 Fix + Robust Redirects)
             url_match = False
