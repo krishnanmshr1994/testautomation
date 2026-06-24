@@ -573,7 +573,8 @@ async function handleStart() {
     currentProgress = 0;
 
     document.getElementById("contextBox").style.display = "none";
-    document.getElementById("contextInput").value = "";
+    document.getElementById("contextUsername").value = "";
+    document.getElementById("contextPassword").value = "";
     setBtnText("⚙️ Automation in Progress...");
     setDisabled(true);
     showProgress();
