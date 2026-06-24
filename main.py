@@ -151,9 +151,12 @@ async def run_automation(target: str,
                 )
                 try:
                     answer = await asyncio.wait_for(context_queue.get(), timeout=context_timeout)
-                    test_login_page_first = (answer.strip().lower() == "yes")
+                    answer_clean = answer.strip().lower()
+                    test_login_page_first = (answer_clean == "yes")
+                    await stream_log(f"[Base] Login page test decision: {'YES — will test login page first' if test_login_page_first else 'NO — skipping login page tests'}")
                 except asyncio.TimeoutError:
                     test_login_page_first = False
+                    await stream_log("[Base] No answer received within timeout — skipping login page test.")
                 await stream_log("CONTEXT_RECEIVED")  # dismiss the yes/no box
 
         elif context_info:
@@ -162,37 +165,52 @@ async def run_automation(target: str,
     # ── Step 3a: Optionally test the login page ───────────────────────────────
     login_page_result = {}
     if login_was_detected and test_login_page_first:
-        await stream_log("\n--- Testing Login Page ---")
-        from src.auditor import perform_static_audit
-        from src.reporter import LiveReporter
-        login_audit = await perform_static_audit(discovery_page) if run_audit else None
-        login_test_plan = await generate_test_plan(
-            discovery_page, "",  # no credentials — test the raw login form
-            custom_tests_raw, run_functional, run_probes, set()
-        )
-        login_reporter = LiveReporter(target, output_dir=run_dir)
-        await login_reporter.initialize(login_audit, login_test_plan)
-        await execute_plan(discovery_page, login_test_plan, live_reporter=login_reporter)
-        login_page_result = await login_reporter.finalize()
-
-    # ── Step 3b: Perform the actual login ────────────────────────────────────
-    if login_was_detected and extra_context:
-        from src.planner import perform_login
-        # Re-navigate to target in case login-page tests moved the browser elsewhere
+        await stream_log("\n--- Testing Login Page (user opted in) ---")
+        from src.auditor import perform_static_audit as _static_audit
+        from src.reporter import LiveReporter as _LiveReporter
+        # Re-navigate to the login page before testing it (in case we drifted)
         try:
             if discovery_page.url != target:
                 await discovery_page.goto(target, wait_until="networkidle")
         except Exception:
             pass
+        login_audit = await _static_audit(discovery_page) if run_audit else None
+        login_test_plan = await generate_test_plan(
+            discovery_page, "",  # no credentials — test the raw login form
+            custom_tests_raw, run_functional, run_probes, set()
+        )
+        login_reporter = _LiveReporter(target, output_dir=run_dir)
+        await login_reporter.initialize(login_audit, login_test_plan)
+        await execute_plan(discovery_page, login_test_plan, live_reporter=login_reporter)
+        login_page_result = await login_reporter.finalize()
+        await stream_log("\n--- Login Page Test Complete — now proceeding to login ---")
+    else:
+        if login_was_detected:
+            await stream_log("[Base] Skipping login page tests — proceeding directly to login.")
+
+    # ── Step 3b: Perform the actual login ────────────────────────────────────
+    if login_was_detected and extra_context:
+        from src.planner import perform_login
+        # Always re-navigate to the login page before attempting login
+        # (login page tests or other drift could have changed the page)
+        try:
+            current_url = discovery_page.url
+            if current_url != target:
+                await stream_log(f"[Login] Re-navigating to login page: {target}")
+                await discovery_page.goto(target, wait_until="networkidle")
+        except Exception as e:
+            await stream_log(f"[Login] Warning: could not re-navigate to login page: {e}")
 
         login_ok = await perform_login(discovery_page, extra_context)
         if login_ok:
-            # Navigate to the originally pasted URL in the now-authenticated session
+            post_login_url = discovery_page.url
+            await stream_log(f"[Login] ✅ Authenticated. Now on: {post_login_url}")
+            # If the login redirected somewhere other than the target, navigate to target
             try:
-                current = discovery_page.url
-                if current != target:
-                    await stream_log(f"[Login] Navigating to target URL: {target}")
+                if post_login_url != target:
+                    await stream_log(f"[Login] Navigating to originally requested URL: {target}")
                     await discovery_page.goto(target, wait_until="networkidle")
+                    await stream_log(f"[Login] Now on target page: {discovery_page.url}")
             except Exception as e:
                 await stream_log(f"[Login] Warning: could not navigate to target after login: {e}")
         else:

@@ -66,7 +66,7 @@
             margin-bottom: 8px;
         }
 
-        input[type="text"], input[type="url"] {
+        input[type="text"], input[type="url"], input[type="password"] {
             width: 100%;
             background: rgba(15,23,42,0.8);
             border: 1px solid var(--border);
@@ -80,7 +80,7 @@
             margin-bottom: 20px;
         }
 
-        input[type="text"]:focus, input[type="url"]:focus, textarea:focus {
+        input[type="text"]:focus, input[type="url"]:focus, input[type="password"]:focus, textarea:focus {
             border-color: var(--primary);
             box-shadow: var(--glow);
         }
@@ -132,30 +132,42 @@
         #contextPromptMessage {
             color: #cbd5e1;
             font-size: 0.95rem;
-            margin-bottom: 14px;
+            margin-bottom: 16px;
             line-height: 1.5;
         }
 
-        #contextInput {
-            width: 100%;
-            background: rgba(15,23,42,0.8);
-            border: 1px solid var(--border);
-            padding: 12px 16px;
-            border-radius: 10px;
-            color: white;
-            font-size: 0.95rem;
-            font-family: inherit;
-            outline: none;
-            margin-bottom: 0;
-            transition: border 0.2s;
+        /* Two-field credential layout */
+        .cred-fields {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 4px;
         }
 
-        #contextInput:focus { border-color: var(--primary); }
+        .cred-field-wrap {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .cred-field-wrap label {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--muted);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .cred-field-wrap input {
+            margin-bottom: 0 !important;
+            padding: 11px 14px;
+            border-radius: 10px;
+        }
 
         .skip-note {
             color: var(--muted);
             font-size: 0.8rem;
-            margin-top: 8px;
+            margin-top: 10px;
         }
 
         /* Yes/No prompt box — shown dynamically for binary choices */
@@ -420,12 +432,20 @@
     <div id="contextBox">
         <div class="context-header">
             <span class="badge">AI DETECTED</span>
-            <span style="font-weight:600; font-size:0.9rem;">User Input Required</span>
+            <span style="font-weight:600; font-size:0.9rem;">Login Credentials Required</span>
         </div>
         <p id="contextPromptMessage"></p>
-        <label id="contextLabel" for="contextInput" style="margin-top:4px; margin-bottom:6px;"></label>
-        <input type="text" id="contextInput">
-        <p class="skip-note">💡 Leave blank to automatically use sensible default test values.</p>
+        <div class="cred-fields">
+            <div class="cred-field-wrap">
+                <label for="contextUsername">Username / Email</label>
+                <input type="text" id="contextUsername" placeholder="e.g. admin" autocomplete="username">
+            </div>
+            <div class="cred-field-wrap">
+                <label for="contextPassword">Password</label>
+                <input type="password" id="contextPassword" placeholder="Enter password" autocomplete="current-password">
+            </div>
+        </div>
+        <p class="skip-note">💡 Leave both blank to skip login and use default test values.</p>
     </div>
 
     <!-- Yes/No prompt — injected by AI for binary decisions -->
@@ -506,9 +526,10 @@ evtSource.onmessage = (e) => {
 
     // Backend ACK — dismiss whichever prompt is open
     if (msg === "CONTEXT_RECEIVED") {
-        document.getElementById("contextBox").style.display  = "none";
-        document.getElementById("yesNoBox").style.display    = "none";
-        document.getElementById("contextInput").value        = "";
+        document.getElementById("contextBox").style.display   = "none";
+        document.getElementById("yesNoBox").style.display     = "none";
+        document.getElementById("contextUsername").value      = "";
+        document.getElementById("contextPassword").value      = "";
         return;
     }
 
@@ -580,13 +601,21 @@ async function handleStart() {
 }
 
 async function submitContext(url) {
-    const context = document.getElementById("contextInput").value.trim();
+    const username = document.getElementById("contextUsername").value.trim();
+    const password = document.getElementById("contextPassword").value.trim();
+    // Build structured credential string that the backend parser understands
+    let context = "";
+    if (username || password) {
+        context = `username: ${username}, password: ${password}`;
+    }
     awaitingCtx = false;
     document.getElementById("contextBox").style.display = "none";
+    document.getElementById("contextUsername").value = "";
+    document.getElementById("contextPassword").value = "";
     setBtnText("⚙️ Continuing Automation...");
     setDisabled(true);
     setStage("plan", 55);
-    logLine(`[User] Context submitted: ${context || "(using defaults)"}`);
+    logLine(`[User] Credentials submitted: ${username ? username : "(none)"} / ${'*'.repeat(password.length) || '(none)'}`);
 
     try {
         await fetch("/api/submit-context", {
@@ -603,13 +632,20 @@ async function submitContext(url) {
 function showContextBox(promptMsg, fieldLabel, placeholder) {
     awaitingCtx = true;
     document.getElementById("contextPromptMessage").innerText = promptMsg || "";
-    document.getElementById("contextLabel").innerText         = fieldLabel || "Required Input";
-    document.getElementById("contextInput").placeholder       = placeholder || "Enter value or leave blank for defaults";
-    document.getElementById("yesNoBox").style.display         = "none";  // ensure no overlap
-    document.getElementById("contextBox").style.display       = "block";
+    // Update placeholders based on AI hint if provided
+    if (placeholder) {
+        // Try to pull username hint out of placeholder text (e.g. "username: admin, password: secret")
+        const uMatch = placeholder.match(/(?:username|user|email)[\s:=-]+([^,|;]+)/i);
+        const pMatch = placeholder.match(/(?:password|pass|pwd)[\s:=-]+([^,|;]+)/i);
+        document.getElementById("contextUsername").placeholder = uMatch ? uMatch[1].trim() : "e.g. admin";
+        document.getElementById("contextPassword").placeholder = pMatch ? pMatch[1].trim() : "Enter password";
+    }
+    document.getElementById("yesNoBox").style.display  = "none";  // ensure no overlap
+    document.getElementById("contextBox").style.display = "block";
     setBtnText("▶ Proceed with Automation");
     setDisabled(false);
-    logLine(`[AI Detected] ${fieldLabel} required — fill in or leave blank for defaults`, "info");
+    document.getElementById("contextUsername").focus();
+    logLine(`[AI Detected] Login form found — enter credentials or leave blank for defaults`, "info");
 }
 
 function showYesNoBox(question, yesLabel, noLabel) {
