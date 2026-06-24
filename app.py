@@ -77,11 +77,13 @@ async def run_background_automation(url: str, context_queue: asyncio.Queue,
     # Intercept stream_logger messages to capture and persist the NEEDS_INPUT signal
     # so it can be replayed to new SSE clients that connect while we are paused.
     _orig_log = stream_logger.log
-    async def _intercepting_log(msg: str):
+    async def _intercepting_log(msg: str, write_to_file: bool = True):
         global _pending_input_signal
-        if msg.startswith("NEEDS_INPUT:"):
+        if msg.startswith("NEEDS_INPUT:") or msg.startswith("NEEDS_YESNO:"):
             _pending_input_signal = msg   # Store for replay to late-connecting clients
-        await _orig_log(msg)
+        elif msg == "CONTEXT_RECEIVED":
+            _pending_input_signal = None  # User responded — stop replaying
+        await _orig_log(msg, write_to_file)
     stream_logger.log = _intercepting_log
 
     try:

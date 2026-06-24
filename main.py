@@ -120,21 +120,83 @@ async def run_automation(target: str,
         return {}
         
     # ── Context Analysis (Global for the domain) ──────────────────────────────────
+    login_was_detected    = False
+    test_login_page_first = False
+
     if not extra_context:
         context_info = await analyze_for_required_context(discovery_page)
         if context_info and context_queue is not None:
-            signal = f"{NEEDS_INPUT_PREFIX}{context_info['prompt_message']}|{context_info['field_label']}|{context_info['placeholder']}"
-            await stream_log(signal)
-            await stream_log(f"[Base] Waiting for user input for context...")
+            login_was_detected = True
             timeouts = get_timeout_settings()
             context_timeout = timeouts.get("context_input_timeout", 120.0)
+
+            # ── Step 1: Ask for credentials ──────────────────────────────────
+            signal = f"{NEEDS_INPUT_PREFIX}{context_info['prompt_message']}|{context_info['field_label']}|{context_info['placeholder']}"
+            await stream_log(signal)
+            await stream_log(f"[Base] Waiting for user to provide credentials...")
             try:
                 extra_context = await asyncio.wait_for(context_queue.get(), timeout=context_timeout)
             except asyncio.TimeoutError:
-                await stream_log(f"[Base] No context received. Using defaults.")
+                await stream_log(f"[Base] No credentials received within timeout. Using defaults.")
                 extra_context = ""
+                login_was_detected = False
+            await stream_log("CONTEXT_RECEIVED")  # dismiss the credential box
+
+            # ── Step 2: Ask whether to test the login page first ─────────────
+            if extra_context and login_was_detected:
+                await stream_log(
+                    "NEEDS_YESNO:A login page was detected. Do you want to test it for "
+                    "vulnerabilities and functional issues before logging in?"
+                    "|Yes, test it|No, skip it"
+                )
+                try:
+                    answer = await asyncio.wait_for(context_queue.get(), timeout=context_timeout)
+                    test_login_page_first = (answer.strip().lower() == "yes")
+                except asyncio.TimeoutError:
+                    test_login_page_first = False
+                await stream_log("CONTEXT_RECEIVED")  # dismiss the yes/no box
+
         elif context_info:
             await stream_log(f"[Base] Context detected: {context_info['field_label']} — using defaults.")
+
+    # ── Step 3a: Optionally test the login page ───────────────────────────────
+    login_page_result = {}
+    if login_was_detected and test_login_page_first:
+        await stream_log("\n--- Testing Login Page ---")
+        from src.auditor import perform_static_audit
+        from src.reporter import LiveReporter
+        login_audit = await perform_static_audit(discovery_page) if run_audit else None
+        login_test_plan = await generate_test_plan(
+            discovery_page, "",  # no credentials — test the raw login form
+            custom_tests_raw, run_functional, run_probes, set()
+        )
+        login_reporter = LiveReporter(target, output_dir=run_dir)
+        await login_reporter.initialize(login_audit, login_test_plan)
+        await execute_plan(discovery_page, login_test_plan, live_reporter=login_reporter)
+        login_page_result = await login_reporter.finalize()
+
+    # ── Step 3b: Perform the actual login ────────────────────────────────────
+    if login_was_detected and extra_context:
+        from src.planner import perform_login
+        # Re-navigate to target in case login-page tests moved the browser elsewhere
+        try:
+            if discovery_page.url != target:
+                await discovery_page.goto(target, wait_until="networkidle")
+        except Exception:
+            pass
+
+        login_ok = await perform_login(discovery_page, extra_context)
+        if login_ok:
+            # Navigate to the originally pasted URL in the now-authenticated session
+            try:
+                current = discovery_page.url
+                if current != target:
+                    await stream_log(f"[Login] Navigating to target URL: {target}")
+                    await discovery_page.goto(target, wait_until="networkidle")
+            except Exception as e:
+                await stream_log(f"[Login] Warning: could not navigate to target after login: {e}")
+        else:
+            await stream_log("[Login] ⚠️ Login failed or could not be confirmed. Proceeding anyway.")
 
     urls_to_test = await crawl_internal_links(target, discovery_page, max_pages)
     await discovery_page.context.close()
@@ -162,19 +224,23 @@ async def run_automation(target: str,
         ))
         
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
+    # Prepend login-page result (if it was tested) so it's included in aggregation
+    all_results = ([login_page_result] if login_page_result else []) + list(results)
+
     # ── Aggregate All Sub-Reports into a Single Master Report ────────────────
-    await stream_log(f"\n[Aggregator] Compiling master report from {len(results)} page(s)...")
+    await stream_log(f"\n[Aggregator] Compiling master report from {len(all_results)} page(s)...")
+
     
     master_report = {
         "target_url": target,
         "generated_at": datetime.now(nyc_tz).strftime("%Y-%m-%d %H:%M:%S"),
         "summary": {
-            "total_pages_scanned": len(results),
-            "total_actions": sum(r.get("summary", {}).get("total_actions", 0) for r in results if r and isinstance(r, dict)),
-            "successful_actions": sum(r.get("summary", {}).get("successful_actions", 0) for r in results if r and isinstance(r, dict)),
-            "failed_actions": sum(r.get("summary", {}).get("failed_actions", 0) for r in results if r and isinstance(r, dict)),
-            "vulnerabilities_found": sum(r.get("summary", {}).get("vulnerabilities_found", 0) for r in results if r and isinstance(r, dict))
+            "total_pages_scanned": len(all_results),
+            "total_actions": sum(r.get("summary", {}).get("total_actions", 0) for r in all_results if r and isinstance(r, dict)),
+            "successful_actions": sum(r.get("summary", {}).get("successful_actions", 0) for r in all_results if r and isinstance(r, dict)),
+            "failed_actions": sum(r.get("summary", {}).get("failed_actions", 0) for r in all_results if r and isinstance(r, dict)),
+            "vulnerabilities_found": sum(r.get("summary", {}).get("vulnerabilities_found", 0) for r in all_results if r and isinstance(r, dict))
         },
         "static_audit": { "vulnerabilities": [] },
         "execution_results": []
@@ -183,7 +249,7 @@ async def run_automation(target: str,
     seen_vulns = set()
     deduped_vulnerabilities = []
     
-    for r in results:
+    for r in all_results:
         if isinstance(r, Exception) or not r: 
             continue
         if r.get("static_audit") and r["static_audit"].get("vulnerabilities"):

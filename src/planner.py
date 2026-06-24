@@ -56,6 +56,100 @@ async def analyze_for_required_context(page: Page) -> dict | None:
     
     return None
 
+
+async def perform_login(page: Page, credentials_text: str) -> bool:
+    """
+    Attempts to perform a login on the current page using the provided credentials.
+    Parses username/password from free-form text (e.g. "username: admin, password: secret"),
+    uses the LLM to identify the correct selectors, fills the form, and submits it.
+    Returns True if the URL changed after submission (indicating successful navigation),
+    False otherwise.
+    """
+    import re
+    await stream_log("[Login] Parsing credentials and identifying login form fields...")
+
+    # ── Parse credentials from free-form text ─────────────────────────────────
+    def extract_field(text: str, *keys) -> str | None:
+        for key in keys:
+            match = re.search(rf'(?i){re.escape(key)}\s*[:\-=]\s*([^\s,|;]+)', text)
+            if match:
+                return match.group(1).strip()
+        return None
+
+    username = extract_field(credentials_text, "username", "user", "email", "login", "u")
+    password = extract_field(credentials_text, "password", "pass", "pwd", "p")
+
+    if not username and not password:
+        await stream_log("[Login] Could not parse credentials from input. Skipping login.")
+        return False
+
+    await stream_log(f"[Login] Parsed → username: {username or '(none)'}, password: {'*' * len(password) if password else '(none)'}")
+
+    # ── Get the current DOM to find login field selectors ────────────────────
+    from src.browser_manager import distill_dom, ask_llm_fast_json_with_healing
+
+    dom_snapshot = await distill_dom(page)
+    login_selector_prompt = f"""Given this HTML:
+{dom_snapshot}
+
+Identify the CSS selectors for the username/email field, password field, and submit/login button.
+Respond ONLY with JSON:
+{{
+  "username_selector": "<css-selector or null>",
+  "password_selector": "<css-selector or null>",
+  "submit_selector":   "<css-selector or null>"
+}}
+If a field doesn't exist, use null."""
+
+    try:
+        selectors = await ask_llm_fast_json_with_healing(
+            login_selector_prompt,
+            system="You are a Playwright automation expert. Respond only with JSON.",
+            max_retries=2
+        )
+    except Exception as e:
+        await stream_log(f"[Login] Could not identify login selectors: {e}")
+        return False
+
+    username_sel = selectors.get("username_selector")
+    password_sel = selectors.get("password_selector")
+    submit_sel   = selectors.get("submit_selector")
+
+    await stream_log(f"[Login] Selectors → user: {username_sel}, pass: {password_sel}, btn: {submit_sel}")
+
+    pre_login_url = page.url
+
+    # ── Fill fields and submit ────────────────────────────────────────────────
+    from src.settings_loader import get_timeout_settings
+    timeouts = get_timeout_settings()
+    nav_timeout = timeouts.get("page_navigation", 10000)
+
+    try:
+        if username and username_sel:
+            await page.fill(username_sel, username, timeout=5000)
+        if password and password_sel:
+            await page.fill(password_sel, password, timeout=5000)
+
+        if submit_sel:
+            await page.click(submit_sel, timeout=5000)
+        else:
+            # No button found — press Enter on the password field
+            if password_sel:
+                await page.press(password_sel, "Enter")
+
+        await page.wait_for_load_state("networkidle", timeout=nav_timeout)
+    except Exception as e:
+        await stream_log(f"[Login] Error during form submission: {e}")
+        return False
+
+    post_login_url = page.url
+    if post_login_url != pre_login_url:
+        await stream_log(f"[Login] ✅ Login successful — navigated to: {post_login_url}")
+        return True
+    else:
+        await stream_log(f"[Login] ⚠️ URL unchanged after submission — login may have failed.")
+        return False
+
 CUSTOM_TEST_FORMAT = """
 Test: <what to do in plain English>
 Expected: <what should happen>

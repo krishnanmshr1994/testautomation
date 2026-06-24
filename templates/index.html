@@ -158,6 +158,72 @@
             margin-top: 8px;
         }
 
+        /* Yes/No prompt box — shown dynamically for binary choices */
+        #yesNoBox {
+            display: none;
+            background: rgba(168,85,247,0.06);
+            border: 1px solid rgba(168,85,247,0.3);
+            border-radius: 14px;
+            padding: 20px;
+            margin-bottom: 20px;
+            animation: fadeIn 0.4s ease;
+        }
+
+        #yesNoBox .context-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 14px;
+        }
+
+        #yesNoBox .badge {
+            background: rgba(168,85,247,0.2);
+            color: var(--purple);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            letter-spacing: 0.05em;
+        }
+
+        #yesNoQuestion {
+            color: #cbd5e1;
+            font-size: 0.95rem;
+            margin-bottom: 16px;
+            line-height: 1.5;
+        }
+
+        .yesno-btns {
+            display: flex;
+            gap: 12px;
+        }
+
+        .yesno-btns button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 10px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        #yesBtn {
+            background: linear-gradient(135deg, var(--green), #059669);
+            color: white;
+            box-shadow: 0 4px 14px rgba(16,185,129,0.3);
+        }
+        #yesBtn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(16,185,129,0.4); }
+
+        #noBtn {
+            background: rgba(255,255,255,0.07);
+            color: #94a3b8;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+        }
+        #noBtn:hover { background: rgba(255,255,255,0.12); color: #e2e8f0; }
+
         /* Toggles */
         .toggles {
             display: flex;
@@ -362,6 +428,19 @@
         <p class="skip-note">💡 Leave blank to automatically use sensible default test values.</p>
     </div>
 
+    <!-- Yes/No prompt — injected by AI for binary decisions -->
+    <div id="yesNoBox">
+        <div class="context-header">
+            <span class="badge">AI QUESTION</span>
+            <span style="font-weight:600; font-size:0.9rem;">Decision Required</span>
+        </div>
+        <p id="yesNoQuestion"></p>
+        <div class="yesno-btns">
+            <button id="yesBtn" onclick="submitYesNo('yes')">✅ <span id="yesBtnLabel">Yes</span></button>
+            <button id="noBtn" onclick="submitYesNo('no')">✖ <span id="noBtnLabel">No</span></button>
+        </div>
+    </div>
+
     <button class="btn" id="startBtn" onclick="handleStart()">Commence Automation</button>
 
     <!-- Progress -->
@@ -411,10 +490,25 @@ const evtSource = new EventSource("/api/stream-logs");
 evtSource.onmessage = (e) => {
     const msg = e.data;
 
-    // Special signal: automation is paused waiting for user context
+    // Special signal: automation is paused waiting for credentials
     if (msg.startsWith("NEEDS_INPUT:")) {
         const parts = msg.replace("NEEDS_INPUT:", "").split("|");
         showContextBox(parts[0], parts[1], parts[2]);
+        return;
+    }
+
+    // Special signal: automation is paused waiting for a yes/no answer
+    if (msg.startsWith("NEEDS_YESNO:")) {
+        const parts = msg.replace("NEEDS_YESNO:", "").split("|");
+        showYesNoBox(parts[0], parts[1], parts[2]);
+        return;
+    }
+
+    // Backend ACK — dismiss whichever prompt is open
+    if (msg === "CONTEXT_RECEIVED") {
+        document.getElementById("contextBox").style.display  = "none";
+        document.getElementById("yesNoBox").style.display    = "none";
+        document.getElementById("contextInput").value        = "";
         return;
     }
 
@@ -511,10 +605,36 @@ function showContextBox(promptMsg, fieldLabel, placeholder) {
     document.getElementById("contextPromptMessage").innerText = promptMsg || "";
     document.getElementById("contextLabel").innerText         = fieldLabel || "Required Input";
     document.getElementById("contextInput").placeholder       = placeholder || "Enter value or leave blank for defaults";
+    document.getElementById("yesNoBox").style.display         = "none";  // ensure no overlap
     document.getElementById("contextBox").style.display       = "block";
     setBtnText("▶ Proceed with Automation");
     setDisabled(false);
     logLine(`[AI Detected] ${fieldLabel} required — fill in or leave blank for defaults`, "info");
+}
+
+function showYesNoBox(question, yesLabel, noLabel) {
+    awaitingCtx = true;
+    document.getElementById("yesNoQuestion").innerText = question || "";
+    document.getElementById("yesBtnLabel").innerText   = yesLabel || "Yes";
+    document.getElementById("noBtnLabel").innerText    = noLabel  || "No";
+    document.getElementById("contextBox").style.display = "none"; // ensure no overlap
+    document.getElementById("yesNoBox").style.display   = "block";
+    logLine(`[AI Question] ${question}`, "info");
+}
+
+async function submitYesNo(answer) {
+    awaitingCtx = false;
+    document.getElementById("yesNoBox").style.display = "none";
+    logLine(`[User] ${answer === "yes" ? document.getElementById("yesBtnLabel").innerText : document.getElementById("noBtnLabel").innerText}`, "info");
+    try {
+        await fetch("/api/submit-context", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: activeUrl, context: answer })
+        });
+    } catch (err) {
+        logLine(`[Error] Failed to submit answer: ${err}`, "err");
+    }
 }
 
 function endRun(success) {
