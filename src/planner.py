@@ -206,18 +206,22 @@ async def perform_login(page: Page, credentials_text: str) -> bool:
         # Actually, frontdoor.jsp works on any salesforce domain to set the cookie.
         
         # We'll use the domain of the page we are currently on to hit frontdoor.jsp
-        auth_url = f"https://{current_host}/secur/frontdoor.jsp?sid={sid}"
+        # Also append the target URL as retURL to ensure it redirects back to the app
+        from urllib.parse import quote
+        auth_url = f"https://{current_host}/secur/frontdoor.jsp?sid={sid}&retURL={quote(target_url)}"
         
         await page.goto(auth_url)
         
         try:
             await page.wait_for_load_state("networkidle", timeout=15000)
+            # Give Salesforce extra time to process the bridge redirect
+            await page.wait_for_url(f"**{target_url}**", timeout=10000)
         except:
             pass
             
         await stream_log("[Login] ✅ Session cookie injected. Checking if login was successful...")
         
-        if "login" in page.url.lower():
+        if "login" in page.url.lower() and "practiceapp.app" not in page.url.lower():
             await stream_log("[Login] ❌ Session ID was rejected by Salesforce.")
             return False
             
