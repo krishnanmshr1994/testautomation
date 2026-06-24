@@ -94,11 +94,14 @@ async def _perform_salesforce_login(page: Page, username: str, password: str) ->
                 headers=headers
             )
 
-        if resp.status_code != 200:
-            await stream_log(f"[Login] ❌ Salesforce SOAP API returned HTTP {resp.status_code}. Check credentials.")
-            return False
-
         body = resp.text
+
+        if resp.status_code != 200:
+            import re
+            fault_match = re.search(r"<faultstring>(.+?)</faultstring>", body)
+            fault_msg = fault_match.group(1) if fault_match else f"HTTP {resp.status_code}"
+            await stream_log(f"[Login] ❌ Salesforce SOAP API error: {fault_msg}")
+            return False
 
         # Parse sessionId and serverUrl from the SOAP XML response
         import re
@@ -106,10 +109,7 @@ async def _perform_salesforce_login(page: Page, username: str, password: str) ->
         server_match  = re.search(r"<serverUrl>(.+?)</serverUrl>", body)
 
         if not session_match:
-            # Check for SOAP fault (wrong credentials)
-            fault_match = re.search(r"<faultstring>(.+?)</faultstring>", body)
-            fault_msg = fault_match.group(1) if fault_match else "Unknown SOAP error"
-            await stream_log(f"[Login] ❌ Salesforce SOAP login failed: {fault_msg}")
+            await stream_log(f"[Login] ❌ Salesforce SOAP login failed: Unknown XML response structure")
             return False
 
         session_id  = session_match.group(1)
