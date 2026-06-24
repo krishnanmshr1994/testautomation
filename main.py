@@ -207,22 +207,39 @@ async def run_automation(target: str,
         if login_ok:
             post_login_url = discovery_page.url
             await stream_log(f"[Login] ✅ Authenticated. Now on: {post_login_url}")
-            
-            # Extract session cookies and local storage to share with parallel pages
-            try:
-                auth_state = await discovery_page.context.storage_state()
-                await stream_log(f"[Login] Successfully captured session state.")
-            except Exception as e:
-                await stream_log(f"[Login] Warning: could not capture session state: {e}")
 
-            # If the login redirected somewhere other than the target, navigate to target
+            # Many enterprise apps use intermediate redirects to bridge session cookies.
+            # Instead of a hard sleep, we dynamically wait to see if the app naturally 
+            # redirects us back to the target URL. If it does, this resolves instantly.
+            try:
+                await stream_log("[Login] Waiting for post-login redirects to settle...")
+                await discovery_page.wait_for_url(target, timeout=5000, wait_until="domcontentloaded")
+            except Exception:
+                pass # If it didn't auto-redirect to target, we will force it below
+            
+            post_login_url = discovery_page.url
+
+            # If the application didn't automatically redirect us back to the target, do it manually
             try:
                 if post_login_url != target:
-                    await stream_log(f"[Login] Navigating to originally requested URL: {target}")
+                    await stream_log(f"[Login] App did not auto-redirect to target. Manually navigating to: {target}")
                     await discovery_page.goto(target, wait_until="networkidle")
+                    
+                    # Wait dynamically for the target page to fully load
+                    await discovery_page.wait_for_load_state("domcontentloaded", timeout=5000)
                     await stream_log(f"[Login] Now on target page: {discovery_page.url}")
             except Exception as e:
                 await stream_log(f"[Login] Warning: could not navigate to target after login: {e}")
+                
+            # Wait for session to settle and extract session cookies to share with parallel pages
+            try:
+                # Event-based wait to ensure background token exchanges (like Salesforce) have settled
+                await discovery_page.wait_for_load_state("networkidle", timeout=5000)
+                await asyncio.sleep(1)  # 1-second buffer to ensure storage writes are flushed
+                auth_state = await discovery_page.context.storage_state()
+                await stream_log(f"[Login] Successfully captured session state for multi-thread testing.")
+            except Exception as e:
+                await stream_log(f"[Login] Warning: could not capture session state: {e}")
         else:
             await stream_log("[Login] ⚠️ Login failed or could not be confirmed. Proceeding anyway.")
 
