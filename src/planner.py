@@ -193,24 +193,34 @@ async def perform_login(page: Page, credentials_text: str) -> bool:
     # ── Direct Session ID Injection Path (Fastest & Most Reliable) ────────────
     if sid:
         from urllib.parse import urlparse
-        await stream_log("[Login] 🔑 Session ID provided. Injecting cookie directly to bypass login form...")
+        await stream_log("[Login] 🔑 Session ID provided. Routing through Salesforce frontdoor to bypass login...")
+        
         current_host = urlparse(page.url).netloc
-        domains_to_inject = set([current_host])
-        if "salesforce" in current_host or "force.com" in current_host:
-            domains_to_inject.update(["salesforce.com", "force.com", current_host])
+        # If we are on login.salesforce.com or lightning.force.com, we need to construct the frontdoor URL
+        # We can usually construct it by using the current host if it's a my.salesforce.com domain,
+        # otherwise we can just use the target URL directly since we just need to hit /secur/frontdoor.jsp
+        
+        target_url = page.url
+        # If we are currently on the login page (which we are), we want to redirect to the original app URL.
+        # But we don't have the original app URL handy here easily except via page.url, which might be the login redirect.
+        # Actually, frontdoor.jsp works on any salesforce domain to set the cookie.
+        
+        # We'll use the domain of the page we are currently on to hit frontdoor.jsp
+        auth_url = f"https://{current_host}/secur/frontdoor.jsp?sid={sid}"
+        
+        await page.goto(auth_url)
+        
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15000)
+        except:
+            pass
             
-        for domain in domains_to_inject:
-            if not domain: continue
-            await page.context.add_cookies([{
-                "name": "sid",
-                "value": sid,
-                "domain": f".{domain.lstrip('.')}",
-                "path": "/",
-                "secure": True,
-                "httpOnly": True,
-                "sameSite": "None"
-            }])
-        await stream_log("[Login] ✅ Session cookie successfully injected.")
+        await stream_log("[Login] ✅ Session cookie injected. Checking if login was successful...")
+        
+        if "login" in page.url.lower():
+            await stream_log("[Login] ❌ Session ID was rejected by Salesforce.")
+            return False
+            
         return True
 
     # ── Route Salesforce domains to the SOAP API path ─────────────────────────
