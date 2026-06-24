@@ -241,7 +241,10 @@ async def run_automation(target: str,
             except Exception as e:
                 await stream_log(f"[Login] Warning: could not capture session state: {e}")
         else:
-            await stream_log("[Login] ⚠️ Login failed or could not be confirmed. Proceeding anyway.")
+            await stream_log("❌ [ABORT] Login failed. Cannot proceed — testing an unauthenticated page would yield incorrect results.")
+            await stream_log("❌ [ABORT] Please verify your credentials and ensure the server IP is not blocked by the target application.")
+            await discovery_page.context.close()
+            return {}
 
     urls_to_test = await crawl_internal_links(target, discovery_page, max_pages)
     await discovery_page.context.close()

@@ -57,15 +57,109 @@ async def analyze_for_required_context(page: Page) -> dict | None:
     return None
 
 
+async def _perform_salesforce_login(page: Page, username: str, password: str) -> bool:
+    """
+    Authenticates against Salesforce using the official SOAP Login API.
+    Extracts the real session ID and server URL, then injects the session cookie
+    directly into the Playwright browser context — completely bypassing the login form
+    and any headless-browser detection.
+    """
+    import httpx
+    from urllib.parse import urlparse
+
+    await stream_log("[Login] 🔑 Salesforce domain detected. Using SOAP API login (bypasses headless detection)...")
+
+    soap_body = f"""<?xml version="1.0" encoding="utf-8" ?>
+<env:Envelope xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+              xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+              xmlns:env="http://schemas.xmlsoap.org/soap/envelope/">
+  <env:Body>
+    <n1:login xmlns:n1="urn:partner.soap.sforce.com">
+      <n1:username>{username}</n1:username>
+      <n1:password>{password}</n1:password>
+    </n1:login>
+  </env:Body>
+</env:Envelope>"""
+
+    headers = {
+        "Content-Type": "text/xml; charset=UTF-8",
+        "SOAPAction": "login"
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://login.salesforce.com/services/Soap/u/59.0",
+                content=soap_body,
+                headers=headers
+            )
+
+        if resp.status_code != 200:
+            await stream_log(f"[Login] ❌ Salesforce SOAP API returned HTTP {resp.status_code}. Check credentials.")
+            return False
+
+        body = resp.text
+
+        # Parse sessionId and serverUrl from the SOAP XML response
+        import re
+        session_match = re.search(r"<sessionId>(.+?)</sessionId>", body)
+        server_match  = re.search(r"<serverUrl>(.+?)</serverUrl>", body)
+
+        if not session_match:
+            # Check for SOAP fault (wrong credentials)
+            fault_match = re.search(r"<faultstring>(.+?)</faultstring>", body)
+            fault_msg = fault_match.group(1) if fault_match else "Unknown SOAP error"
+            await stream_log(f"[Login] ❌ Salesforce SOAP login failed: {fault_msg}")
+            return False
+
+        session_id  = session_match.group(1)
+        server_url  = server_match.group(1) if server_match else ""
+        instance    = urlparse(server_url).netloc  # e.g. bmforces-dev-ed.my.salesforce.com
+        await stream_log(f"[Login] ✅ SOAP login successful. Session acquired for instance: {instance}")
+
+        # Inject the session ID cookie into ALL relevant Salesforce domains so
+        # the browser is considered authenticated when it navigates to the target.
+        domains_to_inject = set()
+        if instance:
+            domains_to_inject.add(instance)
+        # Also inject for the original page's domain (e.g. lightning.force.com)
+        current_host = urlparse(page.url).netloc
+        domains_to_inject.add(current_host)
+
+        for domain in domains_to_inject:
+            if not domain:
+                continue
+            await page.context.add_cookies([{
+                "name": "sid",
+                "value": session_id,
+                "domain": f".{domain.lstrip('.')}",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "sameSite": "None"
+            }])
+        await stream_log(f"[Login] Session cookie injected for: {', '.join(domains_to_inject)}")
+        return True
+
+    except Exception as e:
+        await stream_log(f"[Login] ❌ Salesforce SOAP login error: {e}")
+        return False
+
+
 async def perform_login(page: Page, credentials_text: str) -> bool:
     """
     Attempts to perform a login on the current page using the provided credentials.
-    Parses username/password from free-form text (e.g. "username: admin, password: secret"),
-    uses the LLM to identify the correct selectors, fills the form, and submits it.
-    Returns True if the URL changed after submission (indicating successful navigation),
-    False otherwise.
+    Parses username/password from free-form text (e.g. "username: admin, password: secret").
+
+    For Salesforce domains: uses the official SOAP API to acquire a real session ID
+    and injects it as a browser cookie, bypassing the login form entirely.
+
+    For all other sites: uses the LLM to identify selectors and fills the form directly.
+
+    Returns True on success, False on failure.
     """
     import re
+    import asyncio
     await stream_log("[Login] Parsing credentials and identifying login form fields...")
 
     # ── Parse credentials from free-form text ─────────────────────────────────
@@ -85,7 +179,15 @@ async def perform_login(page: Page, credentials_text: str) -> bool:
 
     await stream_log(f"[Login] Parsed → username: {username or '(none)'}, password: {'*' * len(password) if password else '(none)'}")
 
-    # ── Get the current DOM to find login field selectors ────────────────────
+    # ── Route Salesforce domains to the SOAP API path ─────────────────────────
+    from urllib.parse import urlparse
+    current_host = urlparse(page.url).netloc
+    SALESFORCE_DOMAINS = ("salesforce.com", "force.com", "my.salesforce.com")
+    if any(current_host.endswith(d) for d in SALESFORCE_DOMAINS):
+        return await _perform_salesforce_login(page, username, password)
+
+    # ── Standard form-fill path (for non-Salesforce sites) ────────────────────
+    # Get the current DOM to find login field selectors
     from src.browser_manager import distill_dom, ask_llm_fast_json_with_healing
 
     dom_snapshot = await distill_dom(page)
