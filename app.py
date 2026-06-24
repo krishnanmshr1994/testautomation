@@ -10,6 +10,10 @@ app = Quart(__name__)
 # ── Active context queues (one per running job, keyed by URL) ─────────────────
 _context_queues: dict[str, asyncio.Queue] = {}
 
+# ── Pending NEEDS_INPUT signal — replayed to new SSE listeners if still awaiting ──
+# Stores the full raw signal string (e.g. "NEEDS_INPUT:msg|label|placeholder")
+_pending_input_signal: str | None = None
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Main page
@@ -46,11 +50,13 @@ async def start_test():
 # ─────────────────────────────────────────────────────────────────────────────
 @app.route("/api/submit-context", methods=["POST"])
 async def submit_context():
+    global _pending_input_signal
     data    = await request.get_json()
     url     = data.get("url", "").strip()
     context = data.get("context", "")
     q = _context_queues.get(url)
     if q:
+        _pending_input_signal = None   # Clear the pending signal — user has responded
         await q.put(context)
         return jsonify({"status": "context received"})
     return jsonify({"error": "No active session for this URL"}), 404
@@ -65,15 +71,32 @@ async def run_background_automation(url: str, context_queue: asyncio.Queue,
                                     run_functional: bool = True,
                                     run_probes: bool = True,
                                     max_pages: int = 1):
+    global _pending_input_signal
     await stream_logger.log("--- INIT ---")
-    report = await run_automation(url, is_html=False,
-                                  custom_tests_raw=custom_tests_raw,
-                                  run_audit=run_audit,
-                                  run_functional=run_functional,
-                                  run_probes=run_probes,
-                                  max_pages=max_pages,
-                                  context_queue=context_queue)
-    _context_queues.pop(url, None)
+
+    # Intercept stream_logger messages to capture and persist the NEEDS_INPUT signal
+    # so it can be replayed to new SSE clients that connect while we are paused.
+    _orig_log = stream_logger.log
+    async def _intercepting_log(msg: str):
+        global _pending_input_signal
+        if msg.startswith("NEEDS_INPUT:"):
+            _pending_input_signal = msg   # Store for replay to late-connecting clients
+        await _orig_log(msg)
+    stream_logger.log = _intercepting_log
+
+    try:
+        report = await run_automation(url, is_html=False,
+                                      custom_tests_raw=custom_tests_raw,
+                                      run_audit=run_audit,
+                                      run_functional=run_functional,
+                                      run_probes=run_probes,
+                                      max_pages=max_pages,
+                                      context_queue=context_queue)
+    finally:
+        stream_logger.log = _orig_log   # Always restore original logger
+        _pending_input_signal = None    # Clear pending signal when automation ends
+        _context_queues.pop(url, None)
+
     if report:
         await stream_logger.log("--- COMPLETE ---")
     else:
@@ -88,6 +111,13 @@ async def stream_logs():
     async def sse_generator():
         q = stream_logger.listen()
         try:
+            # Immediately replay any pending NEEDS_INPUT signal to this new client.
+            # This ensures the context box appears even if the client connected late.
+            if _pending_input_signal:
+                lines = _pending_input_signal.splitlines()
+                sse_data = "\n".join(f"data: {line}" for line in lines)
+                yield f"{sse_data}\n\n"
+
             while True:
                 message = await q.get()
                 # SSE requires 'data: ' prefix for every line of a multi-line payload
